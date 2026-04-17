@@ -88,7 +88,7 @@ class AppTheme {
       scaffoldBackgroundColor: AppColors.amoledBlack,
       canvasColor: AppColors.amoledBlack,
       cardColor: AppColors.amoledBlack,
-      dialogTheme: const DialogTheme(backgroundColor: AppColors.amoledBlack),
+      dialogTheme: const DialogThemeData(backgroundColor: AppColors.amoledBlack),
       bottomSheetTheme: const BottomSheetThemeData(backgroundColor: AppColors.amoledBlack),
       colorScheme: dark.colorScheme.copyWith(
         surface: AppColors.amoledBlack,
