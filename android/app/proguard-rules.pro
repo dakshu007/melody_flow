@@ -20,3 +20,11 @@
 # Hive
 -keep class hive.** { *; }
 -keep class **$HiveFieldAdapter { *; }
+
+# ===== Play Core (deferred components) — we don't use them, tell R8 it's OK =====
+# Flutter embedding references these classes but they're optional — we ship
+# a single APK, not dynamic feature modules. Tell R8 not to panic.
+-dontwarn com.google.android.play.core.**
+-keep class com.google.android.play.core.** { *; }
+-keep class io.flutter.embedding.android.FlutterPlayStoreSplitApplication { *; }
+-keep class io.flutter.embedding.engine.deferredcomponents.** { *; }
