@@ -43,7 +43,6 @@ class LyricsPanel extends StatelessWidget {
           defaultExtSize: 14,
           otherMainSize: 14,
           highlight: false,
-          highLightTextColor: Theme.of(context).colorScheme.primary,
           lyricAlign: LyricAlign.CENTER,
           lyricBaseLine: LyricBaseLine.CENTER,
         ),

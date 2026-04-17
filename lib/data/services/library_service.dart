@@ -88,7 +88,7 @@ class LibraryService {
   }
 
   Future<List<Song>> songsFromGenre(int genreId) async {
-    final r = await _query.queryAudiosFromGenreId(genreId);
+    final r = await _query.queryAudiosFrom(AudiosFromType.GENRE_ID, genreId);
     return r.map(Song.fromSongModel).toList();
   }
 

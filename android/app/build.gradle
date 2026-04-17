@@ -17,7 +17,7 @@ def flutterVersionName = localProperties.getProperty('flutter.versionName') ?: '
 
 android {
     namespace "com.melodyflow.app"
-    compileSdk 34
+    compileSdk 36
     ndkVersion flutter.ndkVersion
 
     compileOptions {
@@ -34,7 +34,7 @@ android {
     defaultConfig {
         applicationId "com.melodyflow.app"
         minSdk 23           // Android 6 — gives full just_audio + audio_service support
-        targetSdk 34
+        targetSdk 35
         versionCode flutterVersionCode.toInteger()
         versionName flutterVersionName
         multiDexEnabled true

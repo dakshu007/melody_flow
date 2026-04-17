@@ -3,7 +3,7 @@ import 'package:hive/hive.dart';
 part 'playlist.g.dart';
 
 @HiveType(typeId: 1)
-class Playlist {
+class Playlist extends HiveObject {
   @HiveField(0) final String id;          // uuid
   @HiveField(1) String name;
   @HiveField(2) List<int> songIds;        // ordered

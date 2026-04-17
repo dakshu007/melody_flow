@@ -1,4 +1,5 @@
 import 'package:audio_service/audio_service.dart';
+import 'package:hive_flutter/hive_flutter.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../data/models/app_settings.dart';

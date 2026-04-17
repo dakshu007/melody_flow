@@ -20,12 +20,12 @@ import '../models/song.dart';
 ///   * Sleep timer
 ///   * Equalizer
 class MelodyAudioHandler extends BaseAudioHandler with SeekHandler {
-  final _player = AudioPlayer(
+  final _equalizer = AndroidEqualizer();
+  final _loudnessEnhancer = AndroidLoudnessEnhancer();
+
+  late final AudioPlayer _player = AudioPlayer(
     audioPipeline: AudioPipeline(
-      androidAudioEffects: [
-        AndroidEqualizer(),
-        AndroidLoudnessEnhancer(),
-      ],
+      androidAudioEffects: [_equalizer, _loudnessEnhancer],
     ),
   );
 
@@ -39,15 +39,8 @@ class MelodyAudioHandler extends BaseAudioHandler with SeekHandler {
       BehaviorSubject.seeded(null);
 
   /// Get the equalizer for UI access.
-  AndroidEqualizer get equalizer =>
-      _player.audioPipeline.androidAudioEffects
-          .whereType<AndroidEqualizer>()
-          .first;
-
-  AndroidLoudnessEnhancer get loudnessEnhancer =>
-      _player.audioPipeline.androidAudioEffects
-          .whereType<AndroidLoudnessEnhancer>()
-          .first;
+  AndroidEqualizer get equalizer => _equalizer;
+  AndroidLoudnessEnhancer get loudnessEnhancer => _loudnessEnhancer;
 
   Stream<Duration?> get sleepTimerRemainingStream =>
       _sleepTimerRemaining.stream;
