@@ -161,6 +161,16 @@ class StorageService {
   List<int> favoriteIds() =>
       stats.values.where((s) => s.isFavorite).map((s) => s.songId).toList();
 
+
+  // -------- Playback state persistence (shuffle / repeat) --------
+  Future<void> saveShuffleMode(bool enabled) =>
+      queueBackup.put('shuffle', enabled);
+  bool loadShuffleMode() => queueBackup.get('shuffle', defaultValue: false) as bool;
+
+  Future<void> saveRepeatMode(int index) =>
+      queueBackup.put('repeat', index);
+  int loadRepeatMode() => queueBackup.get('repeat', defaultValue: 0) as int;
+
   // -------- Queue backup --------
   Future<void> saveQueue(List<int> songIds, int currentIndex) async {
     await queueBackup.put('current', songIds);

@@ -7,18 +7,9 @@ import 'package:just_audio/just_audio.dart';
 import 'package:rxdart/rxdart.dart';
 
 import '../models/song.dart';
+import 'storage_service.dart';
 
-/// [MelodyAudioHandler] is the singleton that sits between the UI and
-/// the native audio engine. It's the source of truth for: current song,
-/// position, queue, shuffle, repeat, and equalizer state.
-///
-/// Handles:
-///   * Background playback (via audio_service)
-///   * Bluetooth headset / notification / lock-screen controls
-///   * Android Auto & Chromecast (via just_audio's pipeline)
-///   * Gapless + crossfade
-///   * Sleep timer
-///   * Equalizer
+/// [MelodyAudioHandler] is the singleton between UI and native audio engine.
 class MelodyAudioHandler extends BaseAudioHandler with SeekHandler {
   final _equalizer = AndroidEqualizer();
   final _loudnessEnhancer = AndroidLoudnessEnhancer();
@@ -29,16 +20,18 @@ class MelodyAudioHandler extends BaseAudioHandler with SeekHandler {
     ),
   );
 
-  /// The underlying concat source that lets us have a live, editable queue.
   ConcatenatingAudioSource _playlist =
       ConcatenatingAudioSource(children: []);
 
   List<Song> _queue = [];
   Timer? _sleepTimer;
+  Timer? _queueSaveDebouncer;
   final BehaviorSubject<Duration?> _sleepTimerRemaining =
       BehaviorSubject.seeded(null);
 
-  /// Get the equalizer for UI access.
+  // Play-count tracking (FIX #17)
+  int? _lastCountedIndex;
+
   AndroidEqualizer get equalizer => _equalizer;
   AndroidLoudnessEnhancer get loudnessEnhancer => _loudnessEnhancer;
 
@@ -56,7 +49,24 @@ class MelodyAudioHandler extends BaseAudioHandler with SeekHandler {
     final session = await AudioSession.instance;
     await session.configure(const AudioSessionConfiguration.music());
 
-    // Broadcast just_audio's playback state changes into audio_service.
+    // Handle audio interruptions (calls, alarms, other apps taking focus)
+    session.interruptionEventStream.listen((event) {
+      if (event.begin) {
+        if (event.type == AudioInterruptionType.duck) {
+          _player.setVolume(0.3);
+        } else {
+          _player.pause();
+        }
+      } else {
+        if (event.type == AudioInterruptionType.duck) {
+          _player.setVolume(1.0);
+        }
+      }
+    });
+
+    // Noise (e.g. headphone unplug) -> pause
+    session.becomingNoisyEventStream.listen((_) => _player.pause());
+
     _player.playbackEventStream.listen(
       _broadcastState,
       onError: (Object e, StackTrace st) {
@@ -65,22 +75,54 @@ class MelodyAudioHandler extends BaseAudioHandler with SeekHandler {
       },
     );
 
+    // FIX #17: increment play count when a track starts playing.
+    // We fire on index change, not on every position tick, and dedupe by
+    // remembering the last-counted index.
     _player.currentIndexStream.listen((index) {
       if (index == null || index >= _queue.length) return;
       mediaItem.add(_queue[index].toMediaItem());
+      if (_lastCountedIndex != index) {
+        _lastCountedIndex = index;
+        final song = _queue[index];
+        // Fire and forget
+        StorageService.instance.incrementPlay(song.id);
+      }
+      _scheduleQueueSave();
     });
 
-    // Auto-advance when track completes and repeat isn't on one.
-    _player.processingStateStream.listen((state) {
-      if (state == ProcessingState.completed) {
-        // handled by ConcatenatingAudioSource automatically in loop modes
-      }
+    // FIX #9: persist shuffle/repeat changes
+    _player.shuffleModeEnabledStream.listen((enabled) {
+      StorageService.instance.saveShuffleMode(enabled);
+    });
+    _player.loopModeStream.listen((mode) {
+      StorageService.instance.saveRepeatMode(mode.index);
     });
 
     try {
       await _player.setAudioSource(_playlist);
-    } catch (_) {
-      // empty initial source is fine
+    } catch (_) {}
+  }
+
+  /// FIX #9 + #10: Call this once from main() after the handler is ready.
+  /// Restores shuffle/repeat and optionally re-seeds the queue from disk.
+  Future<void> restorePersistedState(List<Song> Function(List<int>) resolveSongs) async {
+    // Shuffle / repeat
+    final shuffle = StorageService.instance.loadShuffleMode();
+    final repeatIdx = StorageService.instance.loadRepeatMode();
+    if (shuffle) await _player.setShuffleModeEnabled(true);
+    if (repeatIdx >= 0 && repeatIdx < LoopMode.values.length) {
+      await _player.setLoopMode(LoopMode.values[repeatIdx]);
+    }
+
+    // Queue
+    final ids = StorageService.instance.restoreQueueIds();
+    if (ids != null && ids.isNotEmpty) {
+      final songs = resolveSongs(ids);
+      if (songs.isNotEmpty) {
+        final savedIndex = StorageService.instance.restoreQueueIndex()
+            .clamp(0, songs.length - 1);
+        await _loadQueueInternal(songs, initialIndex: savedIndex, autoPlay: false);
+      }
     }
   }
 
@@ -88,10 +130,18 @@ class MelodyAudioHandler extends BaseAudioHandler with SeekHandler {
   // Queue management
   // ---------------------------------------------------------------------------
 
-  /// Replace the entire queue with [songs] and start playing [initialIndex].
   Future<void> loadQueue(List<Song> songs, {int initialIndex = 0}) async {
+    await _loadQueueInternal(songs, initialIndex: initialIndex, autoPlay: true);
+  }
+
+  Future<void> _loadQueueInternal(
+    List<Song> songs, {
+    int initialIndex = 0,
+    bool autoPlay = true,
+  }) async {
     if (songs.isEmpty) return;
     _queue = List.of(songs);
+    _lastCountedIndex = null; // reset so the new first track is counted
 
     _playlist = ConcatenatingAudioSource(
       children: songs.map((s) => _toAudioSource(s)).toList(),
@@ -105,13 +155,15 @@ class MelodyAudioHandler extends BaseAudioHandler with SeekHandler {
     );
     queue.add(_queue.map((s) => s.toMediaItem()).toList());
     mediaItem.add(_queue[initialIndex].toMediaItem());
-    await play();
+    _scheduleQueueSave();
+    if (autoPlay) await play();
   }
 
   Future<void> addToQueue(Song song) async {
     _queue.add(song);
     await _playlist.add(_toAudioSource(song));
     queue.add(_queue.map((s) => s.toMediaItem()).toList());
+    _scheduleQueueSave();
   }
 
   Future<void> playNext(Song song) async {
@@ -119,6 +171,7 @@ class MelodyAudioHandler extends BaseAudioHandler with SeekHandler {
     _queue.insert(idx, song);
     await _playlist.insert(idx, _toAudioSource(song));
     queue.add(_queue.map((s) => s.toMediaItem()).toList());
+    _scheduleQueueSave();
   }
 
   @override
@@ -127,6 +180,7 @@ class MelodyAudioHandler extends BaseAudioHandler with SeekHandler {
     _queue.removeAt(index);
     await _playlist.removeAt(index);
     queue.add(_queue.map((s) => s.toMediaItem()).toList());
+    _scheduleQueueSave();
   }
 
   Future<void> moveInQueue(int from, int to) async {
@@ -135,6 +189,7 @@ class MelodyAudioHandler extends BaseAudioHandler with SeekHandler {
     _queue.insert(to, item);
     await _playlist.move(from, to);
     queue.add(_queue.map((s) => s.toMediaItem()).toList());
+    _scheduleQueueSave();
   }
 
   AudioSource _toAudioSource(Song s) {
@@ -142,6 +197,16 @@ class MelodyAudioHandler extends BaseAudioHandler with SeekHandler {
         ? Uri.parse(s.data!)
         : Uri.file(s.data ?? '');
     return AudioSource.uri(uri, tag: s.toMediaItem());
+  }
+
+  /// FIX #10: Debounced queue persistence. Don't hammer Hive on every change.
+  void _scheduleQueueSave() {
+    _queueSaveDebouncer?.cancel();
+    _queueSaveDebouncer = Timer(const Duration(seconds: 2), () {
+      final ids = _queue.map((s) => s.id).toList();
+      final idx = _player.currentIndex ?? 0;
+      StorageService.instance.saveQueue(ids, idx);
+    });
   }
 
   // ---------------------------------------------------------------------------
@@ -152,7 +217,6 @@ class MelodyAudioHandler extends BaseAudioHandler with SeekHandler {
   Future<void> play() async {
     await _player.setVolume(0.0);
     await _player.play();
-    // Fade in over 400ms
     for (int i = 1; i <= 10; i++) {
       await Future.delayed(const Duration(milliseconds: 40));
       await _player.setVolume(i / 10.0);
@@ -161,7 +225,6 @@ class MelodyAudioHandler extends BaseAudioHandler with SeekHandler {
 
   @override
   Future<void> pause() async {
-    // Fade out over 300ms
     for (int i = 9; i >= 0; i--) {
       await Future.delayed(const Duration(milliseconds: 30));
       await _player.setVolume(i / 10.0);
@@ -169,11 +232,15 @@ class MelodyAudioHandler extends BaseAudioHandler with SeekHandler {
     await _player.pause();
     await _player.setVolume(1.0);
   }
-  @override Future<void> stop()  async {
+
+  @override
+  Future<void> stop() async {
     await _player.stop();
     await super.stop();
   }
-  @override Future<void> seek(Duration position) => _player.seek(position);
+
+  @override
+  Future<void> seek(Duration position) => _player.seek(position);
 
   @override
   Future<void> skipToNext() async {
@@ -182,20 +249,35 @@ class MelodyAudioHandler extends BaseAudioHandler with SeekHandler {
     }
   }
 
+  /// FIX #13: Make skip-previous edge-case-safe.
+  /// If we're within 3s of the track start, go to the real previous track.
+  /// If we're past 3s, restart the current one.
+  /// Also guard against the player reporting "hasPrevious = true" while we're
+  /// already on index 0 (which happens on some OEMs with audio_service queue).
   @override
   Future<void> skipToPrevious() async {
-    // Oto-style: if > 3s, go to start first, else previous track.
-    if (_player.position.inSeconds > 3) {
+    final pos = _player.position;
+    final currentIdx = _player.currentIndex ?? 0;
+
+    // Past 3 seconds in: restart current track, don't navigate.
+    if (pos.inSeconds >= 3) {
       await _player.seek(Duration.zero);
-    } else if (_player.hasPrevious) {
-      await _player.seekToPrevious();
-    } else {
-      await _player.seek(Duration.zero);
+      return;
     }
+
+    // At the start of the first track: just restart it.
+    if (currentIdx <= 0) {
+      await _player.seek(Duration.zero);
+      return;
+    }
+
+    // Normal case: jump back one.
+    await _player.seek(Duration.zero, index: currentIdx - 1);
   }
 
   @override
-  Future<void> skipToQueueItem(int index) => _player.seek(Duration.zero, index: index);
+  Future<void> skipToQueueItem(int index) =>
+      _player.seek(Duration.zero, index: index);
 
   @override
   Future<void> setShuffleMode(AudioServiceShuffleMode mode) async {
@@ -208,15 +290,15 @@ class MelodyAudioHandler extends BaseAudioHandler with SeekHandler {
   Future<void> setRepeatMode(AudioServiceRepeatMode mode) async {
     await _player.setLoopMode(switch (mode) {
       AudioServiceRepeatMode.none => LoopMode.off,
-      AudioServiceRepeatMode.one  => LoopMode.one,
-      AudioServiceRepeatMode.all  => LoopMode.all,
+      AudioServiceRepeatMode.one => LoopMode.one,
+      AudioServiceRepeatMode.all => LoopMode.all,
       AudioServiceRepeatMode.group => LoopMode.all,
     });
   }
 
   Future<void> setVolume(double v) => _player.setVolume(v.clamp(0.0, 1.0));
-  Future<void> setSpeed(double s)  => _player.setSpeed(s.clamp(0.25, 2.5));
-  Future<void> setPitch(double p)  => _player.setPitch(p.clamp(0.5, 2.0));
+  Future<void> setSpeed(double s) => _player.setSpeed(s.clamp(0.25, 2.5));
+  Future<void> setPitch(double p) => _player.setPitch(p.clamp(0.5, 2.0));
 
   // ---------------------------------------------------------------------------
   // Sleep timer
@@ -233,7 +315,6 @@ class MelodyAudioHandler extends BaseAudioHandler with SeekHandler {
         t.cancel();
         _sleepTimerRemaining.add(null);
         if (finishTrack) {
-          // Wait until current track ends
           final sub = _player.processingStateStream.listen(null);
           sub.onData((s) async {
             if (s == ProcessingState.completed) {
@@ -294,13 +375,12 @@ class MelodyAudioHandler extends BaseAudioHandler with SeekHandler {
   Stream<Duration> get positionStream => _player.positionStream;
   Stream<Duration> get bufferedStream => _player.bufferedPositionStream;
   Stream<Duration?> get durationStream => _player.durationStream;
-  Stream<bool> get playingStream   => _player.playingStream;
+  Stream<bool> get playingStream => _player.playingStream;
   Stream<int?> get currentIndexStream => _player.currentIndexStream;
   Stream<LoopMode> get loopModeStream => _player.loopModeStream;
-  Stream<bool> get shuffleModeStream  => _player.shuffleModeEnabledStream;
+  Stream<bool> get shuffleModeStream => _player.shuffleModeEnabledStream;
 }
 
-/// Mapping from our internal [Song] to audio_service's [MediaItem].
 extension SongToMediaItem on Song {
   MediaItem toMediaItem() => MediaItem(
         id: mediaId,
@@ -308,8 +388,6 @@ extension SongToMediaItem on Song {
         album: album,
         artist: artist,
         duration: durationAsDuration,
-        // Album art is resolved via content:// URI that on_audio_query exposes;
-        // the UI layer uses QueryArtworkWidget for in-app display.
         extras: {
           'songId': id,
           'albumId': albumId,
@@ -318,7 +396,6 @@ extension SongToMediaItem on Song {
       );
 }
 
-/// Utility — shuffle the queue in place, respecting current song.
 void shuffleList<T>(List<T> list, {int? pinIndex}) {
   final rng = Random();
   if (pinIndex == null) {

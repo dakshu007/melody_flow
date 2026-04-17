@@ -53,6 +53,10 @@ Future<void> main() async {
         notificationColor: Color(0xFF1DB954),
       ),
     );
+
+    // FIX #9+#10: Defer queue restore until library scan completes.
+    // We can't resolve song ids to Song objects before songs are loaded.
+    // The provider layer handles this via _tryRestoreQueue in app_providers.dart.
   } catch (e, st) {
     debugPrint('AudioService init FAILED: $e\n$st');
     initError = 'Audio service init failed: $e';

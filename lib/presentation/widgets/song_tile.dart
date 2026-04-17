@@ -5,6 +5,7 @@ import 'package:share_plus/share_plus.dart';
 
 import '../../data/models/song.dart';
 import '../providers/app_providers.dart';
+import 'artwork_image.dart';
 import 'playlist_picker_sheet.dart';
 import 'song_info_sheet.dart';
 
@@ -42,29 +43,11 @@ class SongTile extends ConsumerWidget {
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
           child: Row(
             children: [
-              ClipRRect(
-                borderRadius: BorderRadius.circular(8),
-                child: QueryArtworkWidget(
-                  id: song.id,
-                  type: ArtworkType.AUDIO,
-                  artworkBorder: BorderRadius.circular(8),
-                  artworkWidth: 48,
-                  artworkHeight: 48,
-                  artworkFit: BoxFit.cover,
-                  keepOldArtwork: true,
-                  nullArtworkWidget: Container(
-                    width: 48,
-                    height: 48,
-                    decoration: BoxDecoration(
-                      color: theme.dividerColor,
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Icon(
-                      Icons.music_note_rounded,
-                      color: theme.iconTheme.color?.withValues(alpha: 0.5),
-                    ),
-                  ),
-                ),
+              ArtworkImage(
+                id: song.id,
+                type: ArtworkType.AUDIO,
+                size: 48,
+                borderRadius: 8,
               ),
               const SizedBox(width: 14),
               Expanded(

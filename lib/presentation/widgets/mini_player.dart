@@ -6,6 +6,7 @@ import 'package:on_audio_query/on_audio_query.dart';
 
 import '../providers/app_providers.dart';
 import '../screens/now_playing/now_playing_screen.dart';
+import 'artwork_image.dart';
 
 class MiniPlayer extends ConsumerWidget {
   const MiniPlayer({super.key});
@@ -131,18 +132,11 @@ class MiniPlayer extends ConsumerWidget {
   Widget _artwork(MediaItem item) {
     final songId = item.extras?['songId'] as int?;
     if (songId == null) return const _ArtFallback();
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(8),
-      child: QueryArtworkWidget(
-        id: songId,
-        type: ArtworkType.AUDIO,
-        artworkBorder: BorderRadius.circular(8),
-        artworkWidth: 44,
-        artworkHeight: 44,
-        artworkFit: BoxFit.cover,
-        keepOldArtwork: true,
-        nullArtworkWidget: const _ArtFallback(),
-      ),
+    return ArtworkImage(
+      id: songId,
+      type: ArtworkType.AUDIO,
+      size: 44,
+      borderRadius: 8,
     );
   }
 }

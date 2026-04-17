@@ -25,12 +25,15 @@ final storageServiceProvider =
 // ============================================================================
 
 class SongsNotifier extends StateNotifier<AsyncValue<List<Song>>> {
-  SongsNotifier(this._lib, this._storage) : super(const AsyncValue.loading()) {
+  SongsNotifier(this._lib, this._storage, this._handler)
+      : super(const AsyncValue.loading()) {
     refresh();
   }
 
   final LibraryService _lib;
   final StorageService _storage;
+  final MelodyAudioHandler? _handler;
+  bool _queueRestored = false;
 
   Future<void> refresh() async {
     state = const AsyncValue.loading();
@@ -49,6 +52,15 @@ class SongsNotifier extends StateNotifier<AsyncValue<List<Song>>> {
         excludedFolders: settings.excludedFolders,
       );
       state = AsyncValue.data(songs);
+
+      // FIX #10: Restore persisted queue once, after the first successful scan.
+      if (!_queueRestored && _handler != null) {
+        _queueRestored = true;
+        final byId = {for (final s in songs) s.id: s};
+        await _handler!.restorePersistedState(
+          (ids) => ids.map((id) => byId[id]).whereType<Song>().toList(),
+        );
+      }
     } catch (e, st) {
       // Log but don\'t crash — show empty library
       // ignore: avoid_print
@@ -60,10 +72,20 @@ class SongsNotifier extends StateNotifier<AsyncValue<List<Song>>> {
 
 final songsProvider =
     StateNotifierProvider<SongsNotifier, AsyncValue<List<Song>>>(
-  (ref) => SongsNotifier(
-    ref.watch(libraryServiceProvider),
-    ref.watch(storageServiceProvider),
-  ),
+  (ref) {
+    // Audio handler may not be available during tests; fall back to null.
+    MelodyAudioHandler? handler;
+    try {
+      handler = ref.watch(audioHandlerProvider);
+    } catch (_) {
+      handler = null;
+    }
+    return SongsNotifier(
+      ref.watch(libraryServiceProvider),
+      ref.watch(storageServiceProvider),
+      handler,
+    );
+  },
 );
 
 // ============================================================================
