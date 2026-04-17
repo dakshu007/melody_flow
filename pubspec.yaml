@@ -96,9 +96,3 @@ flutter_native_splash:
     image: assets/icons/splash.png
     color: "#0A0A0A"
 
-dependency_overrides:
-  on_audio_query_android:
-    git:
-      url: https://github.com/LucJosin/on_audio_query.git
-      path: packages/on_audio_query_android
-      ref: main

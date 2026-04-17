@@ -3,53 +3,51 @@ name: Build APK
 on:
   push:
     branches: [main]
-  workflow_dispatch:        # lets you trigger manually from the Actions tab
+  workflow_dispatch:
   pull_request:
     branches: [main]
 
 jobs:
   build:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout repo
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up Java 17
-        uses: actions/setup-java@v4
+      - uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Set up Flutter
-        uses: subosito/flutter-action@v2
+      - uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
           cache: true
 
-      - name: Flutter version
-        run: flutter --version
+      - run: flutter --version
+      - run: flutter pub get
 
-      - name: Install dependencies
-        run: flutter pub get
+      # Patch on_audio_query_android to add required namespace
+      # (package is abandoned; this is a well-known workaround)
+      - name: Patch on_audio_query namespace
+        run: |
+          GRADLE_FILE=$(find ~/.pub-cache -path '*on_audio_query_android*/android/build.gradle' | head -n 1)
+          echo "Patching: $GRADLE_FILE"
+          if ! grep -q 'namespace' "$GRADLE_FILE"; then
+            sed -i '/^android {/a\    namespace "com.lucasjosino.on_audio_query"' "$GRADLE_FILE"
+          fi
+          echo "---- Patched file head ----"
+          head -30 "$GRADLE_FILE"
 
-      - name: Analyze (non-blocking)
-        run: flutter analyze || true
+      - run: flutter analyze || true
+      - run: flutter build apk --debug
+      - run: flutter build apk --release
 
-      - name: Build debug APK
-        run: flutter build apk --debug
-
-      - name: Build release APK (unsigned)
-        run: flutter build apk --release
-
-      - name: Upload debug APK
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
           name: melody-flow-debug-apk
           path: build/app/outputs/flutter-apk/app-debug.apk
 
-      - name: Upload release APK
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
           name: melody-flow-release-apk
           path: build/app/outputs/flutter-apk/app-release.apk
