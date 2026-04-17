@@ -1,4 +1,4 @@
-package com.melodyflow.melody_flow
+package com.melodyflow.app
 
 import io.flutter.embedding.android.FlutterActivity
 

@@ -50,7 +50,10 @@ class SongsNotifier extends StateNotifier<AsyncValue<List<Song>>> {
       );
       state = AsyncValue.data(songs);
     } catch (e, st) {
-      state = AsyncValue.error(e, st);
+      // Log but don\'t crash — show empty library
+      // ignore: avoid_print
+      print('Song scan failed: $e\n$st');
+      state = const AsyncValue.data([]);
     }
   }
 }
