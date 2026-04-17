@@ -1,3 +1,25 @@
+#!/bin/bash
+# Melody Flow — round 3 build fix
+# Fixes Kotlin/Java JVM target mismatch in on_audio_query_android plugin
+# Run from inside melody_flow project root:
+#   bash fix_build_3.sh
+
+set -e
+
+echo "🔧 Melody Flow build fix round 3 (JVM target)..."
+echo ""
+
+if [ ! -f "pubspec.yaml" ]; then
+  echo "❌ Error: pubspec.yaml not found. Run from inside the melody_flow folder."
+  exit 1
+fi
+
+# ----------------------------------------------------------------------------
+# Update the GitHub Actions workflow to patch JVM target in plugin gradles
+# ----------------------------------------------------------------------------
+echo "✅ [1/2] Extending workflow with JVM target patch step..."
+
+cat > .github/workflows/build-apk.yml << 'EOF'
 name: Build APK
 
 on:
@@ -66,3 +88,27 @@ jobs:
         with:
           name: melody-flow-release-apk
           path: build/app/outputs/flutter-apk/app-release.apk
+EOF
+
+# ----------------------------------------------------------------------------
+# Verify
+# ----------------------------------------------------------------------------
+echo "✅ [2/2] Verifying workflow file..."
+echo ""
+echo "---- Workflow now has these patch steps ----"
+grep -E 'name: (Patch|Force)' .github/workflows/build-apk.yml
+echo ""
+
+# ----------------------------------------------------------------------------
+# Commit and push
+# ----------------------------------------------------------------------------
+echo "📝 Committing and pushing..."
+git add -A
+git status --short
+echo ""
+git commit -m "Fix: patch JVM target 17 in on_audio_query_android"
+git push
+
+echo ""
+echo "🎉 Pushed. Build running."
+echo "   Watch: https://github.com/dakshu007/melody_flow/actions"
