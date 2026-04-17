@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/utils/format.dart';
+import '../../../core/utils/haptics.dart';
 import '../../../data/models/song.dart';
 import '../../providers/app_providers.dart';
+import '../../widgets/empty_state.dart';
 import '../../widgets/song_tile.dart';
 
 class PlaylistDetailScreen extends ConsumerWidget {
@@ -34,6 +37,14 @@ class PlaylistDetailScreen extends ConsumerWidget {
     return p.songIds.map((id) => map[id]).whereType<Song>().toList();
   }
 
+  String _smartName(String id) => switch (id) {
+        'smart_favorites' => 'Favorites',
+        'smart_most_played' => 'Most Played',
+        'smart_recently_played' => 'Recently Played',
+        'smart_recently_added' => 'Recently Added',
+        _ => 'Playlist',
+      };
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final storage = ref.watch(storageServiceProvider);
@@ -42,78 +53,111 @@ class PlaylistDetailScreen extends ConsumerWidget {
     final handler = ref.read(audioHandlerProvider);
 
     return Scaffold(
-      body: CustomScrollView(
-        slivers: [
-          SliverAppBar(
-            expandedHeight: 220,
-            pinned: true,
-            flexibleSpace: FlexibleSpaceBar(
-              title: Text(
-                playlistId.startsWith('smart_')
-                    ? _smartName(playlistId)
-                    : (playlist?.name ?? 'Playlist'),
-                style: const TextStyle(fontWeight: FontWeight.w700),
-              ),
-              background: Container(
-                color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.2),
-                child: Center(
-                  child: Icon(
-                    Icons.queue_music_rounded,
-                    size: 80,
-                    color: Colors.white.withValues(alpha: 0.6),
+      body: songs.isEmpty
+          ? CustomScrollView(
+              slivers: [
+                SliverAppBar(
+                  pinned: true,
+                  expandedHeight: 140,
+                  flexibleSpace: FlexibleSpaceBar(
+                    title: Text(
+                      playlistId.startsWith('smart_')
+                          ? _smartName(playlistId)
+                          : (playlist?.name ?? 'Playlist'),
+                      style: const TextStyle(fontWeight: FontWeight.w700),
+                    ),
                   ),
                 ),
-              ),
-            ),
-          ),
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Row(
-                children: [
-                  Text('${songs.length} songs',
-                      style: Theme.of(context).textTheme.bodyMedium),
-                  const Spacer(),
-                  FilledButton.icon(
-                    icon: const Icon(Icons.play_arrow_rounded),
-                    label: const Text('Play'),
-                    onPressed: songs.isEmpty
-                        ? null
-                        : () => handler.loadQueue(songs),
+                SliverFillRemaining(
+                  child: EmptyState.emptyPlaylist(),
+                ),
+              ],
+            )
+          : CustomScrollView(
+              slivers: [
+                SliverAppBar(
+                  expandedHeight: 220,
+                  pinned: true,
+                  flexibleSpace: FlexibleSpaceBar(
+                    title: Text(
+                      playlistId.startsWith('smart_')
+                          ? _smartName(playlistId)
+                          : (playlist?.name ?? 'Playlist'),
+                      style: const TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                    background: Container(
+                      color: Theme.of(context)
+                          .colorScheme
+                          .primary
+                          .withValues(alpha: 0.2),
+                      child: Center(
+                        child: Icon(
+                          Icons.queue_music_rounded,
+                          size: 80,
+                          color: Colors.white.withValues(alpha: 0.6),
+                        ),
+                      ),
+                    ),
                   ),
-                  const SizedBox(width: 8),
-                  FilledButton.tonalIcon(
-                    icon: const Icon(Icons.shuffle_rounded),
-                    label: const Text('Shuffle'),
-                    onPressed: songs.isEmpty
-                        ? null
-                        : () {
-                            final shuffled = [...songs]..shuffle();
-                            handler.loadQueue(shuffled);
-                          },
+                ),
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // A6: duration total on header
+                        Text(
+                          Format.listSummary(songs),
+                          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                color:
+                                    Theme.of(context).textTheme.bodySmall?.color,
+                              ),
+                        ),
+                        const SizedBox(height: 12),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: FilledButton.icon(
+                                icon: const Icon(Icons.play_arrow_rounded),
+                                label: const Text('Play'),
+                                onPressed: () {
+                                  Haptics.medium();
+                                  handler.loadQueue(songs);
+                                },
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: FilledButton.tonalIcon(
+                                icon: const Icon(Icons.shuffle_rounded),
+                                label: const Text('Shuffle'),
+                                onPressed: () {
+                                  Haptics.medium();
+                                  final shuffled = [...songs]..shuffle();
+                                  handler.loadQueue(shuffled);
+                                },
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
                   ),
-                ],
-              ),
+                ),
+                SliverList.builder(
+                  itemCount: songs.length,
+                  itemBuilder: (_, i) => SongTile(
+                    song: songs[i],
+                    onTap: () {
+                      Haptics.light();
+                      handler.loadQueue(songs, initialIndex: i);
+                    },
+                  ),
+                ),
+                const SliverToBoxAdapter(child: SizedBox(height: 120)),
+              ],
             ),
-          ),
-          SliverList.builder(
-            itemCount: songs.length,
-            itemBuilder: (_, i) => SongTile(
-              song: songs[i],
-              onTap: () => handler.loadQueue(songs, initialIndex: i),
-            ),
-          ),
-          const SliverToBoxAdapter(child: SizedBox(height: 120)),
-        ],
-      ),
     );
   }
-
-  String _smartName(String id) => switch (id) {
-        'smart_favorites' => 'Favorites',
-        'smart_most_played' => 'Most Played',
-        'smart_recently_played' => 'Recently Played',
-        'smart_recently_added' => 'Recently Added',
-        _ => 'Playlist',
-      };
 }

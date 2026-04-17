@@ -2,21 +2,37 @@ import 'package:audio_service/audio_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:marquee/marquee.dart';
-import 'package:on_audio_query/on_audio_query.dart';
 
+import '../../core/utils/haptics.dart';
 import '../providers/app_providers.dart';
 import '../screens/now_playing/now_playing_screen.dart';
 import 'artwork_image.dart';
+import 'package:on_audio_query/on_audio_query.dart';
 
-class MiniPlayer extends ConsumerWidget {
+/// Mini player with swipe-to-skip and haptic feedback.
+///
+/// Gestures:
+///   - Tap         → open full Now Playing
+///   - Swipe left  → skip next  (haptic)
+///   - Swipe right → skip previous (haptic)
+class MiniPlayer extends ConsumerStatefulWidget {
   const MiniPlayer({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<MiniPlayer> createState() => _MiniPlayerState();
+}
+
+class _MiniPlayerState extends ConsumerState<MiniPlayer> {
+  double _dragDx = 0;
+  static const _swipeThreshold = 64.0;
+
+  @override
+  Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final mediaItem = ref.watch(mediaItemStreamProvider).valueOrNull;
     final playback = ref.watch(playbackStateStreamProvider).valueOrNull;
-    final position = ref.watch(positionStreamProvider).valueOrNull ?? Duration.zero;
+    final position =
+        ref.watch(positionStreamProvider).valueOrNull ?? Duration.zero;
 
     if (mediaItem == null) return const SizedBox.shrink();
 
@@ -27,18 +43,38 @@ class MiniPlayer extends ConsumerWidget {
 
     return Material(
       color: theme.scaffoldBackgroundColor,
-      child: InkWell(
-        onTap: () => Navigator.of(context).push(
-          PageRouteBuilder(
-            pageBuilder: (_, a, __) =>
-                FadeTransition(opacity: a, child: const NowPlayingScreen()),
-            transitionDuration: const Duration(milliseconds: 320),
-          ),
-        ),
-        child: Container(
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onHorizontalDragUpdate: (d) => setState(() => _dragDx += d.delta.dx),
+        onHorizontalDragEnd: (_) {
+          final handler = ref.read(audioHandlerProvider);
+          if (_dragDx <= -_swipeThreshold) {
+            Haptics.selection();
+            handler.skipToNext();
+          } else if (_dragDx >= _swipeThreshold) {
+            Haptics.selection();
+            handler.skipToPrevious();
+          }
+          setState(() => _dragDx = 0);
+        },
+        onHorizontalDragCancel: () => setState(() => _dragDx = 0),
+        onTap: () {
+          Haptics.light();
+          Navigator.of(context).push(
+            PageRouteBuilder(
+              pageBuilder: (_, a, __) =>
+                  FadeTransition(opacity: a, child: const NowPlayingScreen()),
+              transitionDuration: const Duration(milliseconds: 320),
+            ),
+          );
+        },
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 80),
+          transform: Matrix4.translationValues(_dragDx * 0.4, 0, 0),
           decoration: BoxDecoration(
             border: Border(
-              top: BorderSide(color: theme.dividerColor.withValues(alpha: 0.3)),
+              top: BorderSide(
+                  color: theme.dividerColor.withValues(alpha: 0.3)),
             ),
           ),
           padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
@@ -59,7 +95,7 @@ class MiniPlayer extends ConsumerWidget {
                           child: _scrollOrTruncate(
                             mediaItem.title,
                             theme.textTheme.bodyMedium?.copyWith(
-                                fontWeight: FontWeight.w600) ??
+                                    fontWeight: FontWeight.w600) ??
                                 const TextStyle(),
                           ),
                         ),
@@ -84,6 +120,7 @@ class MiniPlayer extends ConsumerWidget {
                       size: 30,
                     ),
                     onPressed: () {
+                      Haptics.medium();
                       final handler = ref.read(audioHandlerProvider);
                       (playback?.playing ?? false)
                           ? handler.pause()
@@ -92,8 +129,10 @@ class MiniPlayer extends ConsumerWidget {
                   ),
                   IconButton(
                     icon: const Icon(Icons.skip_next_rounded, size: 28),
-                    onPressed: () =>
-                        ref.read(audioHandlerProvider).skipToNext(),
+                    onPressed: () {
+                      Haptics.selection();
+                      ref.read(audioHandlerProvider).skipToNext();
+                    },
                   ),
                 ],
               ),
@@ -115,9 +154,9 @@ class MiniPlayer extends ConsumerWidget {
   }
 
   Widget _scrollOrTruncate(String text, TextStyle style) {
-    // Marquee only if title is long (>28 chars)
     if (text.length <= 28) {
-      return Text(text, maxLines: 1, overflow: TextOverflow.ellipsis, style: style);
+      return Text(text,
+          maxLines: 1, overflow: TextOverflow.ellipsis, style: style);
     }
     return Marquee(
       text: text,

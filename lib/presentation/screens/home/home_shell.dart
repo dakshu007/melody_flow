@@ -6,9 +6,10 @@ import '../library/library_screen.dart';
 import '../playlists/playlists_screen.dart';
 import '../settings/settings_screen.dart';
 import '../../widgets/mini_player.dart';
+import '../../providers/app_providers.dart';
 import 'home_screen.dart';
 
-/// Root scaffold with the 4-tab bottom nav and persistent MiniPlayer.
+/// Root scaffold with bottom nav, mini player, and back-to-now-playing FAB.
 class HomeShell extends ConsumerStatefulWidget {
   const HomeShell({super.key});
 
@@ -28,6 +29,8 @@ class _HomeShellState extends ConsumerState<HomeShell> {
 
   @override
   Widget build(BuildContext context) {
+    final hasMedia = ref.watch(mediaItemStreamProvider).valueOrNull != null;
+
     return Scaffold(
       body: IndexedStack(index: _index, children: _pages),
       bottomNavigationBar: Column(
@@ -63,8 +66,10 @@ class _HomeShellState extends ConsumerState<HomeShell> {
           ),
         ],
       ),
-      floatingActionButton: _index == 0
+      // Search FAB on Home tab only; otherwise no FAB (mini player fills the role)
+      floatingActionButton: _index == 0 && !hasMedia
           ? FloatingActionButton(
+              heroTag: 'search_fab',
               onPressed: () => Navigator.of(context).push(
                 MaterialPageRoute(builder: (_) => const SearchScreen()),
               ),

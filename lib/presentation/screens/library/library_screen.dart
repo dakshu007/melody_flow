@@ -2,13 +2,18 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:on_audio_query/on_audio_query.dart';
 
+import '../../../core/utils/format.dart';
+import '../../../core/utils/haptics.dart';
 import '../../../data/models/song.dart';
 import '../../providers/app_providers.dart';
+import '../../widgets/artwork_image.dart';
+import '../../widgets/collection_quick_actions.dart';
+import '../../widgets/empty_state.dart';
+import '../../widgets/shimmer_list.dart';
 import '../../widgets/song_tile.dart';
 
 class LibraryScreen extends ConsumerStatefulWidget {
   const LibraryScreen({super.key});
-
   @override
   ConsumerState<LibraryScreen> createState() => _LibraryScreenState();
 }
@@ -23,12 +28,14 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
   void initState() {
     super.initState();
     _tabs = TabController(length: 5, vsync: this);
-    // Load persisted sort from settings (after first frame so provider is ready)
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final s = ref.read(settingsProvider);
       setState(() {
-        _sortType = SongSortType.values[s.songSort.clamp(0, SongSortType.values.length - 1)];
-        _order = s.sortAscending ? OrderType.ASC_OR_SMALLER : OrderType.DESC_OR_GREATER;
+        _sortType = SongSortType.values[
+            s.songSort.clamp(0, SongSortType.values.length - 1)];
+        _order = s.sortAscending
+            ? OrderType.ASC_OR_SMALLER
+            : OrderType.DESC_OR_GREATER;
       });
     });
   }
@@ -67,7 +74,6 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
                         : OrderType.ASC_OR_SMALLER;
                 }
               });
-              // Persist to settings
               ref.read(settingsProvider.notifier).update((c) {
                 c.songSort = _sortType.index;
                 c.sortAscending = _order == OrderType.ASC_OR_SMALLER;
@@ -82,13 +88,15 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
               PopupMenuItem(value: 'date', child: Text('Sort by date added')),
               PopupMenuItem(value: 'duration', child: Text('Sort by duration')),
               PopupMenuDivider(),
-              PopupMenuItem(
-                  value: 'order', child: Text('Toggle asc / desc')),
+              PopupMenuItem(value: 'order', child: Text('Toggle asc / desc')),
             ],
           ),
           IconButton(
             icon: const Icon(Icons.refresh_rounded),
-            onPressed: () => ref.read(songsProvider.notifier).refresh(),
+            onPressed: () {
+              Haptics.light();
+              ref.read(songsProvider.notifier).refresh();
+            },
           ),
         ],
         bottom: TabBar(
@@ -129,10 +137,20 @@ class _SongsTab extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final songs = ref.watch(songsProvider);
     return songs.when(
-      loading: () => const Center(child: CircularProgressIndicator()),
-      error: (e, _) => Center(child: Text('$e')),
+      loading: () => const ShimmerList(itemCount: 10),
+      error: (e, _) => EmptyState(
+        icon: Icons.error_outline_rounded,
+        title: 'Something went wrong',
+        subtitle: '$e',
+        actionLabel: 'Retry',
+        onAction: () => ref.read(songsProvider.notifier).refresh(),
+      ),
       data: (list) {
-        if (list.isEmpty) return const Center(child: Text('No songs found'));
+        if (list.isEmpty) {
+          return EmptyState.noMusic(
+            onRefresh: () => ref.read(songsProvider.notifier).refresh(),
+          );
+        }
         return ListView.builder(
           padding: const EdgeInsets.only(bottom: 120),
           itemCount: list.length + 1,
@@ -141,9 +159,12 @@ class _SongsTab extends ConsumerWidget {
             final s = list[i - 1];
             return SongTile(
               song: s,
-              onTap: () => ref
-                  .read(audioHandlerProvider)
-                  .loadQueue(list, initialIndex: i - 1),
+              onTap: () {
+                Haptics.light();
+                ref
+                    .read(audioHandlerProvider)
+                    .loadQueue(list, initialIndex: i - 1);
+              },
             );
           },
         );
@@ -162,19 +183,23 @@ class _PlayAllHeader extends ConsumerWidget {
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
       child: Row(
         children: [
-          Text('${songs.length} songs',
+          // A6: total duration summary
+          Text(Format.listSummary(songs),
               style: Theme.of(context).textTheme.bodySmall),
           const Spacer(),
           TextButton.icon(
             icon: const Icon(Icons.play_circle_fill_rounded),
             label: const Text('Play all'),
-            onPressed: () =>
-                ref.read(audioHandlerProvider).loadQueue(songs),
+            onPressed: () {
+              Haptics.medium();
+              ref.read(audioHandlerProvider).loadQueue(songs);
+            },
           ),
           TextButton.icon(
             icon: const Icon(Icons.shuffle_rounded),
             label: const Text('Shuffle'),
             onPressed: () {
+              Haptics.medium();
               final shuffled = [...songs]..shuffle();
               ref.read(audioHandlerProvider).loadQueue(shuffled);
             },
@@ -196,10 +221,15 @@ class _AlbumsTab extends ConsumerWidget {
     return FutureBuilder<List<AlbumModel>>(
       future: lib.fetchAlbums(),
       builder: (_, snap) {
-        if (!snap.hasData) {
-          return const Center(child: CircularProgressIndicator());
-        }
+        if (!snap.hasData) return const ShimmerGrid(itemCount: 6);
         final albums = snap.data!;
+        if (albums.isEmpty) {
+          return const EmptyState(
+            icon: Icons.album_rounded,
+            title: 'No albums',
+            subtitle: 'Your songs don\'t have album metadata yet.',
+          );
+        }
         return GridView.builder(
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 120),
           gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
@@ -209,10 +239,7 @@ class _AlbumsTab extends ConsumerWidget {
             childAspectRatio: 0.78,
           ),
           itemCount: albums.length,
-          itemBuilder: (_, i) {
-            final a = albums[i];
-            return _AlbumCard(album: a);
-          },
+          itemBuilder: (_, i) => _AlbumCard(album: albums[i]),
         );
       },
     );
@@ -227,27 +254,33 @@ class _AlbumCard extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     return GestureDetector(
       onTap: () async {
-        final songs = await ref
-            .read(libraryServiceProvider)
-            .songsFromAlbum(album.id);
+        Haptics.light();
+        final songs =
+            await ref.read(libraryServiceProvider).songsFromAlbum(album.id);
         if (songs.isEmpty) return;
         ref.read(audioHandlerProvider).loadQueue(songs);
+      },
+      onLongPress: () {
+        CollectionQuickActions.show(
+          context,
+          title: album.album,
+          subtitle: album.artist ?? 'Unknown artist',
+          leadingIcon: Icons.album_rounded,
+          loadSongs: () =>
+              ref.read(libraryServiceProvider).songsFromAlbum(album.id),
+        );
       },
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Expanded(
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(12),
-              child: QueryArtworkWidget(
+            child: SizedBox(
+              width: double.infinity,
+              child: ArtworkImage(
                 id: album.id,
                 type: ArtworkType.ALBUM,
-                artworkBorder: BorderRadius.circular(12),
-                artworkFit: BoxFit.cover,
-                nullArtworkWidget: Container(
-                  color: Theme.of(context).dividerColor,
-                  child: const Icon(Icons.album_rounded, size: 48),
-                ),
+                size: 400,
+                borderRadius: 12,
               ),
             ),
           ),
@@ -281,14 +314,20 @@ class _ArtistsTab extends ConsumerWidget {
     return FutureBuilder<List<ArtistModel>>(
       future: lib.fetchArtists(),
       builder: (_, snap) {
-        if (!snap.hasData) {
-          return const Center(child: CircularProgressIndicator());
-        }
+        if (!snap.hasData) return const ShimmerList(itemCount: 10);
         final artists = snap.data!;
+        if (artists.isEmpty) {
+          return const EmptyState(
+            icon: Icons.person_outline_rounded,
+            title: 'No artists',
+            subtitle: 'Your songs don\'t have artist metadata yet.',
+          );
+        }
         return ListView.separated(
           padding: const EdgeInsets.only(bottom: 120),
           itemCount: artists.length,
-          separatorBuilder: (_, __) => const Divider(height: 1, indent: 84),
+          separatorBuilder: (_, __) =>
+              const Divider(height: 1, indent: 84),
           itemBuilder: (_, i) {
             final a = artists[i];
             return ListTile(
@@ -301,11 +340,22 @@ class _ArtistsTab extends ConsumerWidget {
               title: Text(a.artist,
                   style: const TextStyle(fontWeight: FontWeight.w600)),
               subtitle: Text(
-                  '${a.numberOfTracks ?? 0} songs • ${a.numberOfAlbums ?? 0} albums'),
+                  '${a.numberOfTracks ?? 0} songs · ${a.numberOfAlbums ?? 0} albums'),
               onTap: () async {
+                Haptics.light();
                 final songs = await lib.songsFromArtist(a.id);
                 if (songs.isEmpty) return;
                 ref.read(audioHandlerProvider).loadQueue(songs);
+              },
+              onLongPress: () {
+                CollectionQuickActions.show(
+                  context,
+                  title: a.artist,
+                  subtitle:
+                      '${a.numberOfTracks ?? 0} songs · ${a.numberOfAlbums ?? 0} albums',
+                  leadingIcon: Icons.person_rounded,
+                  loadSongs: () => lib.songsFromArtist(a.id),
+                );
               },
             );
           },
@@ -326,11 +376,16 @@ class _GenresTab extends ConsumerWidget {
     return FutureBuilder<List<GenreModel>>(
       future: lib.fetchGenres(),
       builder: (_, snap) {
-        if (!snap.hasData) {
-          return const Center(child: CircularProgressIndicator());
-        }
+        if (!snap.hasData) return const ShimmerGrid(itemCount: 6);
         final genres = snap.data!;
-        if (genres.isEmpty) return const Center(child: Text('No genres'));
+        if (genres.isEmpty) {
+          return const EmptyState(
+            icon: Icons.category_outlined,
+            title: 'No genres',
+            subtitle:
+                'Most songs don\'t have genre tags. Try editing their metadata.',
+          );
+        }
         return GridView.builder(
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 120),
           gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
@@ -344,9 +399,18 @@ class _GenresTab extends ConsumerWidget {
             final g = genres[i];
             return GestureDetector(
               onTap: () async {
+                Haptics.light();
                 final songs = await lib.songsFromGenre(g.id);
                 if (songs.isEmpty) return;
                 ref.read(audioHandlerProvider).loadQueue(songs);
+              },
+              onLongPress: () {
+                CollectionQuickActions.show(
+                  context,
+                  title: g.genre,
+                  leadingIcon: Icons.category_rounded,
+                  loadSongs: () => lib.songsFromGenre(g.id),
+                );
               },
               child: Container(
                 padding: const EdgeInsets.all(16),
@@ -380,14 +444,20 @@ class _FoldersTab extends ConsumerWidget {
     return FutureBuilder<List<String>>(
       future: lib.fetchFolders(),
       builder: (_, snap) {
-        if (!snap.hasData) {
-          return const Center(child: CircularProgressIndicator());
-        }
+        if (!snap.hasData) return const ShimmerList(itemCount: 8);
         final folders = snap.data!;
+        if (folders.isEmpty) {
+          return const EmptyState(
+            icon: Icons.folder_off_rounded,
+            title: 'No folders',
+            subtitle: 'Music folders will appear once you have songs.',
+          );
+        }
         return ListView.separated(
           padding: const EdgeInsets.only(bottom: 120),
           itemCount: folders.length,
-          separatorBuilder: (_, __) => const Divider(height: 1, indent: 72),
+          separatorBuilder: (_, __) =>
+              const Divider(height: 1, indent: 72),
           itemBuilder: (_, i) {
             final f = folders[i];
             final name = f.split('/').last;
@@ -397,13 +467,32 @@ class _FoldersTab extends ConsumerWidget {
                   style: const TextStyle(fontWeight: FontWeight.w600)),
               subtitle: Text(f,
                   maxLines: 1, overflow: TextOverflow.ellipsis),
-              onTap: () async {
-                final allSongs = ref.read(songsProvider).valueOrNull ?? [];
+              onTap: () {
+                Haptics.light();
+                final allSongs =
+                    ref.read(songsProvider).valueOrNull ?? [];
                 final songs = allSongs
-                    .where((s) => s.data != null && s.data!.startsWith(f))
+                    .where((s) =>
+                        s.data != null && s.data!.startsWith(f))
                     .toList();
                 if (songs.isEmpty) return;
                 ref.read(audioHandlerProvider).loadQueue(songs);
+              },
+              onLongPress: () {
+                CollectionQuickActions.show(
+                  context,
+                  title: name,
+                  subtitle: f,
+                  leadingIcon: Icons.folder_rounded,
+                  loadSongs: () async {
+                    final allSongs =
+                        ref.read(songsProvider).valueOrNull ?? [];
+                    return allSongs
+                        .where((s) =>
+                            s.data != null && s.data!.startsWith(f))
+                        .toList();
+                  },
+                );
               },
             );
           },
