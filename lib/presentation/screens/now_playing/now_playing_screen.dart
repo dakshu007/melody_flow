@@ -1,3 +1,4 @@
+import 'dart:typed_data';
 import 'dart:ui';
 
 import 'package:audio_service/audio_service.dart';
@@ -402,49 +403,74 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
 }
 
 // ---------- Blurred backdrop (A5) ----------
-class _BlurredBackdrop extends StatelessWidget {
+/// Renders the current song's artwork as a heavily-blurred, darkened
+/// full-screen background behind the Now Playing UI.
+class _BlurredBackdrop extends StatefulWidget {
   final int songId;
   const _BlurredBackdrop({required this.songId});
 
   @override
-  Widget build(BuildContext context) {
-    return Positioned.fill(
-      child: QueryArtworkWidget(
-        id: songId,
-        type: ArtworkType.AUDIO,
-        artworkFit: BoxFit.cover,
-        artworkWidth: double.infinity,
-        artworkHeight: double.infinity,
-        artworkBorder: BorderRadius.zero,
-        keepOldArtwork: true,
-        artworkClipBehavior: Clip.none,
-        nullArtworkWidget: const SizedBox.shrink(),
-        artwork: Stack(
-          fit: StackFit.expand,
-          children: [
-            // The artwork fills the area; we blur with BackdropFilter
-            Container(color: Colors.black),
-          ],
-        ),
-      ).toBlurred(),
-    );
-  }
+  State<_BlurredBackdrop> createState() => _BlurredBackdropState();
 }
 
-/// Helper extension so we can wrap the artwork in a blur layer.
-extension _BlurExt on Widget {
-  Widget toBlurred() => ClipRect(
+class _BlurredBackdropState extends State<_BlurredBackdrop> {
+  Uint8List? _bytes;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  @override
+  void didUpdateWidget(covariant _BlurredBackdrop old) {
+    super.didUpdateWidget(old);
+    if (old.songId != widget.songId) _load();
+  }
+
+  Future<void> _load() async {
+    try {
+      final b = await OnAudioQuery().queryArtwork(
+        widget.songId,
+        ArtworkType.AUDIO,
+        size: 400,
+      );
+      if (!mounted) return;
+      setState(() => _bytes = b);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _bytes = null);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_bytes == null) return const SizedBox.shrink();
+    return Positioned.fill(
+      child: ClipRect(
         child: Stack(
           fit: StackFit.expand,
           children: [
-            this,
+            // Artwork, slightly scaled up so blur edges aren't visible
+            Transform.scale(
+              scale: 1.2,
+              child: Image.memory(
+                _bytes!,
+                fit: BoxFit.cover,
+                gaplessPlayback: true,
+                errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+              ),
+            ),
+            // Heavy blur on top
             BackdropFilter(
-              filter: ImageFilter.blur(sigmaX: 40, sigmaY: 40),
-              child: Container(color: Colors.black.withValues(alpha: 0.2)),
+              filter: ImageFilter.blur(sigmaX: 45, sigmaY: 45),
+              child: Container(color: Colors.black.withValues(alpha: 0.25)),
             ),
           ],
         ),
-      );
+      ),
+    );
+  }
 }
 
 // ---------- Artwork ----------
