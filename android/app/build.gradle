@@ -40,6 +40,29 @@ android {
         multiDexEnabled true
     }
 
+    
+    signingConfigs {
+        // To sign for Play Store:
+        // 1. keytool -genkey -v -keystore ~/melody-upload.jks -keyalg RSA -keysize 2048 -validity 10000 -alias upload
+        // 2. Create android/key.properties with:
+        //      storeFile=/full/path/to/melody-upload.jks
+        //      storePassword=YOUR_PASSWORD
+        //      keyPassword=YOUR_PASSWORD
+        //      keyAlias=upload
+        // 3. Uncomment this block:
+        // release {
+        //     def keystoreProperties = new Properties()
+        //     def keystorePropertiesFile = rootProject.file('key.properties')
+        //     if (keystorePropertiesFile.exists()) {
+        //         keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
+        //     }
+        //     keyAlias keystoreProperties['keyAlias']
+        //     keyPassword keystoreProperties['keyPassword']
+        //     storeFile keystoreProperties['storeFile'] ? file(keystoreProperties['storeFile']) : null
+        //     storePassword keystoreProperties['storePassword']
+        // }
+    }
+
     buildTypes {
         release {
             // Replace with your upload keystore before publishing.

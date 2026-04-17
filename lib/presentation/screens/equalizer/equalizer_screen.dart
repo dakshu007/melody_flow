@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:just_audio/just_audio.dart';
 
+import '../../../data/presets/eq_presets.dart';
 import '../../providers/app_providers.dart';
 
 class EqualizerScreen extends ConsumerStatefulWidget {
@@ -12,6 +13,15 @@ class EqualizerScreen extends ConsumerStatefulWidget {
 }
 
 class _EqualizerScreenState extends ConsumerState<EqualizerScreen> {
+  String _selectedPreset = 'Custom';
+
+  Future<void> _applyPreset(EqPreset preset, AndroidEqualizerParameters params) async {
+    for (int i = 0; i < params.bands.length && i < preset.gains.length; i++) {
+      await params.bands[i].setGain(preset.gains[i].toDouble());
+    }
+    setState(() => _selectedPreset = preset.name);
+  }
+
   @override
   Widget build(BuildContext context) {
     final eq = ref.read(audioHandlerProvider).equalizer;
@@ -38,9 +48,33 @@ class _EqualizerScreenState extends ConsumerState<EqualizerScreen> {
             return const Center(child: CircularProgressIndicator());
           }
           final params = snap.data!;
+
           return ListView(
             padding: const EdgeInsets.all(20),
             children: [
+              // Preset chips
+              Text('Presets',
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      )),
+              const SizedBox(height: 12),
+              SizedBox(
+                height: 40,
+                child: ListView.separated(
+                  scrollDirection: Axis.horizontal,
+                  itemCount: eqPresets.length,
+                  separatorBuilder: (_, __) => const SizedBox(width: 8),
+                  itemBuilder: (_, i) {
+                    final p = eqPresets[i];
+                    return ChoiceChip(
+                      label: Text(p.name),
+                      selected: _selectedPreset == p.name,
+                      onSelected: (_) => _applyPreset(p, params),
+                    );
+                  },
+                ),
+              ),
+              const SizedBox(height: 32),
               Text('Bands',
                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
                         fontWeight: FontWeight.w700,
@@ -51,12 +85,18 @@ class _EqualizerScreenState extends ConsumerState<EqualizerScreen> {
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: params.bands
-                      .map((b) => Expanded(child: _BandSlider(band: b, params: params)))
+                      .map((b) => Expanded(
+                          child: _BandSlider(
+                            band: b,
+                            params: params,
+                            onManualChange: () =>
+                                setState(() => _selectedPreset = 'Custom'),
+                          )))
                       .toList(),
                 ),
               ),
               const SizedBox(height: 32),
-              Text('Loudness',
+              Text('Loudness enhancer',
                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
                         fontWeight: FontWeight.w700,
                       )),
@@ -65,7 +105,7 @@ class _EqualizerScreenState extends ConsumerState<EqualizerScreen> {
                 stream: loudness.enabledStream,
                 builder: (_, snap) {
                   return SwitchListTile(
-                    title: const Text('Enable loudness enhancer'),
+                    title: const Text('Enable'),
                     value: snap.data ?? false,
                     onChanged: (v) => loudness.setEnabled(v),
                   );
@@ -79,7 +119,7 @@ class _EqualizerScreenState extends ConsumerState<EqualizerScreen> {
                     children: [
                       Slider(
                         min: 0,
-                        max: 1, // 0 -> 0dB, 1 -> +10dB
+                        max: 1,
                         value: gain.clamp(0, 1),
                         onChanged: (v) => loudness.setTargetGain(v),
                       ),
@@ -87,6 +127,14 @@ class _EqualizerScreenState extends ConsumerState<EqualizerScreen> {
                     ],
                   );
                 },
+              ),
+              const SizedBox(height: 40),
+              Center(
+                child: TextButton.icon(
+                  icon: const Icon(Icons.refresh_rounded),
+                  label: const Text('Reset to flat'),
+                  onPressed: () => _applyPreset(eqPresets[0], params),
+                ),
               ),
             ],
           );
@@ -96,20 +144,20 @@ class _EqualizerScreenState extends ConsumerState<EqualizerScreen> {
   }
 }
 
-class _BandSlider extends StatefulWidget {
+class _BandSlider extends StatelessWidget {
   final AndroidEqualizerBand band;
   final AndroidEqualizerParameters params;
-  const _BandSlider({required this.band, required this.params});
+  final VoidCallback onManualChange;
+  const _BandSlider({
+    required this.band,
+    required this.params,
+    required this.onManualChange,
+  });
 
-  @override
-  State<_BandSlider> createState() => _BandSliderState();
-}
-
-class _BandSliderState extends State<_BandSlider> {
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<double>(
-      stream: widget.band.gainStream,
+      stream: band.gainStream,
       builder: (_, snap) {
         final gain = snap.data ?? 0.0;
         return Column(
@@ -118,15 +166,17 @@ class _BandSliderState extends State<_BandSlider> {
               child: RotatedBox(
                 quarterTurns: -1,
                 child: Slider(
-                  min: widget.params.minDecibels,
-                  max: widget.params.maxDecibels,
-                  value: gain.clamp(
-                      widget.params.minDecibels, widget.params.maxDecibels),
-                  onChanged: (v) => widget.band.setGain(v),
+                  min: params.minDecibels,
+                  max: params.maxDecibels,
+                  value: gain.clamp(params.minDecibels, params.maxDecibels),
+                  onChanged: (v) {
+                    band.setGain(v);
+                    onManualChange();
+                  },
                 ),
               ),
             ),
-            Text('${(widget.band.centerFrequency / 1000).toStringAsFixed(0)}k',
+            Text('${(band.centerFrequency / 1000).toStringAsFixed(0)}k',
                 style: const TextStyle(fontSize: 11)),
             Text('${gain.toStringAsFixed(0)}dB',
                 style: const TextStyle(fontSize: 10)),

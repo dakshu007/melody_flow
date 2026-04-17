@@ -148,8 +148,27 @@ class MelodyAudioHandler extends BaseAudioHandler with SeekHandler {
   // Playback controls
   // ---------------------------------------------------------------------------
 
-  @override Future<void> play()  => _player.play();
-  @override Future<void> pause() => _player.pause();
+  @override
+  Future<void> play() async {
+    await _player.setVolume(0.0);
+    await _player.play();
+    // Fade in over 400ms
+    for (int i = 1; i <= 10; i++) {
+      await Future.delayed(const Duration(milliseconds: 40));
+      await _player.setVolume(i / 10.0);
+    }
+  }
+
+  @override
+  Future<void> pause() async {
+    // Fade out over 300ms
+    for (int i = 9; i >= 0; i--) {
+      await Future.delayed(const Duration(milliseconds: 30));
+      await _player.setVolume(i / 10.0);
+    }
+    await _player.pause();
+    await _player.setVolume(1.0);
+  }
   @override Future<void> stop()  async {
     await _player.stop();
     await super.stop();

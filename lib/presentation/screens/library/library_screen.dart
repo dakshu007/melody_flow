@@ -23,6 +23,14 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
   void initState() {
     super.initState();
     _tabs = TabController(length: 5, vsync: this);
+    // Load persisted sort from settings (after first frame so provider is ready)
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final s = ref.read(settingsProvider);
+      setState(() {
+        _sortType = SongSortType.values[s.songSort.clamp(0, SongSortType.values.length - 1)];
+        _order = s.sortAscending ? OrderType.ASC_OR_SMALLER : OrderType.DESC_OR_GREATER;
+      });
+    });
   }
 
   @override
@@ -58,6 +66,12 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
                         ? OrderType.DESC_OR_GREATER
                         : OrderType.ASC_OR_SMALLER;
                 }
+              });
+              // Persist to settings
+              ref.read(settingsProvider.notifier).update((c) {
+                c.songSort = _sortType.index;
+                c.sortAscending = _order == OrderType.ASC_OR_SMALLER;
+                return c;
               });
               ref.read(songsProvider.notifier).refresh();
             },

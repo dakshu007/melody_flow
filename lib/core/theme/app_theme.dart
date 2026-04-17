@@ -86,7 +86,16 @@ class AppTheme {
     final dark = AppTheme.dark(accent);
     return dark.copyWith(
       scaffoldBackgroundColor: AppColors.amoledBlack,
-      colorScheme: dark.colorScheme.copyWith(surface: AppColors.amoledBlack),
+      canvasColor: AppColors.amoledBlack,
+      cardColor: AppColors.amoledBlack,
+      dialogTheme: const DialogTheme(backgroundColor: AppColors.amoledBlack),
+      bottomSheetTheme: const BottomSheetThemeData(backgroundColor: AppColors.amoledBlack),
+      colorScheme: dark.colorScheme.copyWith(
+        surface: AppColors.amoledBlack,
+        surfaceContainer: AppColors.amoledBlack,
+        surfaceContainerLow: AppColors.amoledBlack,
+        surfaceContainerHigh: AppColors.surfaceDark,
+      ),
       appBarTheme: dark.appBarTheme.copyWith(backgroundColor: AppColors.amoledBlack),
       bottomNavigationBarTheme: dark.bottomNavigationBarTheme.copyWith(
         backgroundColor: AppColors.amoledBlack,

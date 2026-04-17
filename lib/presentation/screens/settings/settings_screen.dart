@@ -44,31 +44,12 @@ class SettingsScreen extends ConsumerWidget {
 
           const _Section('Audio'),
           SwitchListTile(
-            title: const Text('Gapless playback'),
-            value: settings.gaplessPlayback,
-            onChanged: (v) => notifier.update((c) => c..gaplessPlayback = v),
-          ),
-          SwitchListTile(
             title: const Text('Fade in / fade out'),
-            subtitle: const Text('Smooth transitions when pausing/resuming'),
+            subtitle: const Text('Smooth fade when pausing/resuming (enabled)'),
             value: settings.fadeInOut,
             onChanged: (v) => notifier.update((c) => c..fadeInOut = v),
           ),
-          SwitchListTile(
-            title: const Text('Replay gain'),
-            subtitle: const Text('Normalize volume across tracks'),
-            value: settings.replayGainEnabled,
-            onChanged: (v) =>
-                notifier.update((c) => c..replayGainEnabled = v),
-          ),
-          ListTile(
-            title: const Text('Crossfade'),
-            subtitle: Text(settings.crossfadeMs == 0
-                ? 'Disabled'
-                : '${(settings.crossfadeMs / 1000).toStringAsFixed(1)} seconds'),
-            trailing: const Icon(Icons.chevron_right_rounded),
-            onTap: () => _showCrossfadeDialog(context, settings, notifier),
-          ),
+
 
           const _Section('Library'),
           ListTile(

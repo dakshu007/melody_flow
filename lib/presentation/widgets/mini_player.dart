@@ -1,13 +1,12 @@
 import 'package:audio_service/audio_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:marquee/marquee.dart';
 import 'package:on_audio_query/on_audio_query.dart';
 
 import '../providers/app_providers.dart';
 import '../screens/now_playing/now_playing_screen.dart';
 
-/// Shown above the bottom nav bar whenever a song is playing/paused.
-/// Tap expands to full Now Playing. Swipe left/right to skip.
 class MiniPlayer extends ConsumerWidget {
   const MiniPlayer({super.key});
 
@@ -54,12 +53,13 @@ class MiniPlayer extends ConsumerWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Text(
-                          mediaItem.title,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: theme.textTheme.bodyMedium?.copyWith(
-                            fontWeight: FontWeight.w600,
+                        SizedBox(
+                          height: 18,
+                          child: _scrollOrTruncate(
+                            mediaItem.title,
+                            theme.textTheme.bodyMedium?.copyWith(
+                                fontWeight: FontWeight.w600) ??
+                                const TextStyle(),
                           ),
                         ),
                         const SizedBox(height: 2),
@@ -113,11 +113,24 @@ class MiniPlayer extends ConsumerWidget {
     );
   }
 
+  Widget _scrollOrTruncate(String text, TextStyle style) {
+    // Marquee only if title is long (>28 chars)
+    if (text.length <= 28) {
+      return Text(text, maxLines: 1, overflow: TextOverflow.ellipsis, style: style);
+    }
+    return Marquee(
+      text: text,
+      style: style,
+      velocity: 28,
+      blankSpace: 40,
+      pauseAfterRound: const Duration(seconds: 2),
+      startPadding: 0,
+    );
+  }
+
   Widget _artwork(MediaItem item) {
     final songId = item.extras?['songId'] as int?;
-    if (songId == null) {
-      return const _ArtFallback();
-    }
+    if (songId == null) return const _ArtFallback();
     return ClipRRect(
       borderRadius: BorderRadius.circular(8),
       child: QueryArtworkWidget(
@@ -127,6 +140,7 @@ class MiniPlayer extends ConsumerWidget {
         artworkWidth: 44,
         artworkHeight: 44,
         artworkFit: BoxFit.cover,
+        keepOldArtwork: true,
         nullArtworkWidget: const _ArtFallback(),
       ),
     );
