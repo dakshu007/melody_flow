@@ -8,6 +8,7 @@ environment:
   flutter: ">=3.19.0"
 
 dependencies:
+  http: ^1.2.0
   flutter:
     sdk: flutter
   cupertino_icons: ^1.0.6
@@ -91,12 +92,6 @@ flutter_launcher_icons:
   adaptive_icon_foreground: "assets/icons/app_icon_fg.png"
   adaptive_icon_monochrome: "assets/icons/app_icon_fg.png"
   remove_alpha_ios: true
-  web:
-    generate: false
-  windows:
-    generate: false
-  macos:
-    generate: false
 
 flutter_native_splash:
   color: "#CDEBC0"

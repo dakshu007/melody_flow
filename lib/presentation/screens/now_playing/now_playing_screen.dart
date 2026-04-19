@@ -4,6 +4,7 @@ import 'dart:ui';
 import 'package:audio_service/audio_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:just_audio/just_audio.dart';
 import 'package:marquee/marquee.dart';
 import 'package:on_audio_query/on_audio_query.dart';
 import 'package:palette_generator/palette_generator.dart';
@@ -25,12 +26,14 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
   Color _bgColor = const Color(0xFF1E1E1E);
   int? _lastArtSongId;
   bool _showLyrics = false;
-
-  // Drag-to-dismiss state
   double _dragY = 0;
   static const _dismissThreshold = 120.0;
 
-  Future<void> _extractColor(int songId) async {
+  Future<void> _extractColor(int songId, {required bool enabled}) async {
+    if (!enabled) {
+      setState(() => _bgColor = const Color(0xFF1E1E1E));
+      return;
+    }
     if (_lastArtSongId == songId) return;
     _lastArtSongId = songId;
     try {
@@ -52,27 +55,26 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
   @override
   Widget build(BuildContext context) {
     final mediaItem = ref.watch(mediaItemStreamProvider).valueOrNull;
-    final playback = ref.watch(playbackStateStreamProvider).valueOrNull;
     final position =
         ref.watch(positionStreamProvider).valueOrNull ?? Duration.zero;
     final handler = ref.read(audioHandlerProvider);
+    final settings = ref.watch(settingsProvider);
 
     if (mediaItem == null) {
       return const Scaffold(body: Center(child: Text('Nothing playing')));
     }
 
     final songId = mediaItem.extras?['songId'] as int?;
-    if (songId != null) _extractColor(songId);
+    if (songId != null) {
+      _extractColor(songId, enabled: settings.dynamicColorFromArtwork);
+    }
 
     final duration = mediaItem.duration ?? Duration.zero;
     final isFav =
         songId != null && ref.watch(storageServiceProvider).isFavorite(songId);
-
-    // Opacity that fades out as user drags down
     final dragOpacity = (1 - (_dragY / 400)).clamp(0.0, 1.0);
 
     return GestureDetector(
-      // Vertical drag to dismiss
       behavior: HitTestBehavior.opaque,
       onVerticalDragUpdate: (d) {
         if (d.delta.dy > 0 || _dragY > 0) {
@@ -100,10 +102,8 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
             child: Stack(
               fit: StackFit.expand,
               children: [
-                // Blurred artwork background (A5)
-                if (songId != null) _BlurredBackdrop(songId: songId),
-
-                // Gradient overlay for readability
+                if (songId != null && settings.dynamicColorFromArtwork)
+                  _BlurredBackdrop(songId: songId),
                 AnimatedContainer(
                   duration: const Duration(milliseconds: 600),
                   curve: Curves.easeOut,
@@ -120,7 +120,6 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
                     ),
                   ),
                 ),
-
                 Scaffold(
                   extendBodyBehindAppBar: true,
                   backgroundColor: Colors.transparent,
@@ -155,7 +154,6 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
                       padding: const EdgeInsets.fromLTRB(24, 16, 24, 32),
                       child: Column(
                         children: [
-                          // Drag indicator at top
                           Container(
                             width: 40,
                             height: 4,
@@ -175,7 +173,6 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
                                       position: position,
                                     )
                                   : GestureDetector(
-                                      // A14: tap artwork to toggle lyrics
                                       onTap: () {
                                         Haptics.light();
                                         setState(() =>
@@ -206,8 +203,8 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
                                       overflow: TextOverflow.ellipsis,
                                       style: TextStyle(
                                         fontSize: 15,
-                                        color:
-                                            Colors.white.withValues(alpha: 0.7),
+                                        color: Colors.white
+                                            .withValues(alpha: 0.7),
                                       ),
                                     ),
                                   ],
@@ -240,48 +237,8 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
                             onSeek: handler.seek,
                           ),
                           const SizedBox(height: 16),
-                          _MainControls(
-                            isPlaying: playback?.playing ?? false,
-                            onPlayPause: () {
-                              Haptics.medium();
-                              (playback?.playing ?? false)
-                                  ? handler.pause()
-                                  : handler.play();
-                            },
-                            onNext: () {
-                              Haptics.selection();
-                              handler.skipToNext();
-                            },
-                            onPrev: () {
-                              Haptics.selection();
-                              handler.skipToPrevious();
-                            },
-                            shuffleMode: playback?.shuffleMode ??
-                                AudioServiceShuffleMode.none,
-                            repeatMode: playback?.repeatMode ??
-                                AudioServiceRepeatMode.none,
-                            onShuffle: () {
-                              Haptics.light();
-                              final next = playback?.shuffleMode ==
-                                      AudioServiceShuffleMode.all
-                                  ? AudioServiceShuffleMode.none
-                                  : AudioServiceShuffleMode.all;
-                              handler.setShuffleMode(next);
-                            },
-                            onRepeat: () {
-                              Haptics.light();
-                              final cur = playback?.repeatMode ??
-                                  AudioServiceRepeatMode.none;
-                              final next = switch (cur) {
-                                AudioServiceRepeatMode.none =>
-                                  AudioServiceRepeatMode.all,
-                                AudioServiceRepeatMode.all =>
-                                  AudioServiceRepeatMode.one,
-                                _ => AudioServiceRepeatMode.none,
-                              };
-                              handler.setRepeatMode(next);
-                            },
-                          ),
+                          // ------ Main controls (FIXED shuffle/repeat) ------
+                          _MainControls(handler: handler),
                           const SizedBox(height: 20),
                           Row(
                             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
@@ -299,9 +256,10 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
                                 icon: Icons.equalizer_rounded,
                                 onTap: () {
                                   Haptics.light();
-                                  Navigator.of(context).push(MaterialPageRoute(
-                                      builder: (_) =>
-                                          const EqualizerScreen()));
+                                  Navigator.of(context).push(
+                                      MaterialPageRoute(
+                                          builder: (_) =>
+                                              const EqualizerScreen()));
                                 },
                               ),
                               _IconAction(
@@ -402,9 +360,113 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
   }
 }
 
-// ---------- Blurred backdrop (A5) ----------
-/// Renders the current song's artwork as a heavily-blurred, darkened
-/// full-screen background behind the Now Playing UI.
+// =============================================================================
+// FIX #5: Shuffle + Repeat bound directly to just_audio streams, not via
+// audio_service's delayed PlaybackState. StreamBuilder rebuilds instantly
+// when the player's mode changes, so the UI reflects the true state.
+// =============================================================================
+
+class _MainControls extends StatelessWidget {
+  final dynamic handler; // MelodyAudioHandler
+  const _MainControls({required this.handler});
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = Theme.of(context).colorScheme.primary;
+
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        // SHUFFLE button - direct stream
+        StreamBuilder<bool>(
+          stream: handler.shuffleModeStream,
+          initialData: false,
+          builder: (_, snap) {
+            final on = snap.data ?? false;
+            return IconButton(
+              iconSize: 26,
+              icon: Icon(Icons.shuffle_rounded,
+                  color: on ? accent : Colors.white),
+              onPressed: () async {
+                Haptics.light();
+                final nextOn = !on;
+                await handler.setShuffleMode(nextOn
+                    ? AudioServiceShuffleMode.all
+                    : AudioServiceShuffleMode.none);
+              },
+            );
+          },
+        ),
+        IconButton(
+          iconSize: 40,
+          icon: const Icon(Icons.skip_previous_rounded, color: Colors.white),
+          onPressed: () {
+            Haptics.selection();
+            handler.skipToPrevious();
+          },
+        ),
+        StreamBuilder<bool>(
+          stream: handler.playingStream,
+          initialData: false,
+          builder: (_, snap) {
+            final playing = snap.data ?? false;
+            return GestureDetector(
+              onTap: () {
+                Haptics.medium();
+                playing ? handler.pause() : handler.play();
+              },
+              child: Container(
+                width: 72,
+                height: 72,
+                decoration: const BoxDecoration(
+                    color: Colors.white, shape: BoxShape.circle),
+                child: Icon(
+                    playing ? Icons.pause_rounded : Icons.play_arrow_rounded,
+                    color: Colors.black,
+                    size: 40),
+              ),
+            );
+          },
+        ),
+        IconButton(
+          iconSize: 40,
+          icon: const Icon(Icons.skip_next_rounded, color: Colors.white),
+          onPressed: () {
+            Haptics.selection();
+            handler.skipToNext();
+          },
+        ),
+        // REPEAT button - direct stream, cycles through none → all → one
+        StreamBuilder<LoopMode>(
+          stream: handler.loopModeStream,
+          initialData: LoopMode.off,
+          builder: (_, snap) {
+            final mode = snap.data ?? LoopMode.off;
+            final icon = mode == LoopMode.one
+                ? Icons.repeat_one_rounded
+                : Icons.repeat_rounded;
+            final color = mode == LoopMode.off ? Colors.white : accent;
+            return IconButton(
+              iconSize: 26,
+              icon: Icon(icon, color: color),
+              onPressed: () async {
+                Haptics.light();
+                final next = switch (mode) {
+                  LoopMode.off => AudioServiceRepeatMode.all,
+                  LoopMode.all => AudioServiceRepeatMode.one,
+                  LoopMode.one => AudioServiceRepeatMode.none,
+                };
+                await handler.setRepeatMode(next);
+              },
+            );
+          },
+        ),
+      ],
+    );
+  }
+}
+
+// ---------- Blurred backdrop (uses actual image bytes) ----------
 class _BlurredBackdrop extends StatefulWidget {
   final int songId;
   const _BlurredBackdrop({required this.songId});
@@ -451,7 +513,6 @@ class _BlurredBackdropState extends State<_BlurredBackdrop> {
         child: Stack(
           fit: StackFit.expand,
           children: [
-            // Artwork, slightly scaled up so blur edges aren't visible
             Transform.scale(
               scale: 1.2,
               child: Image.memory(
@@ -461,7 +522,6 @@ class _BlurredBackdropState extends State<_BlurredBackdrop> {
                 errorBuilder: (_, __, ___) => const SizedBox.shrink(),
               ),
             ),
-            // Heavy blur on top
             BackdropFilter(
               filter: ImageFilter.blur(sigmaX: 45, sigmaY: 45),
               child: Container(color: Colors.black.withValues(alpha: 0.25)),
@@ -525,7 +585,9 @@ class _SeekBar extends StatefulWidget {
   final Duration position, duration;
   final ValueChanged<Duration> onSeek;
   const _SeekBar(
-      {required this.position, required this.duration, required this.onSeek});
+      {required this.position,
+      required this.duration,
+      required this.onSeek});
   @override
   State<_SeekBar> createState() => _SeekBarState();
 }
@@ -579,66 +641,6 @@ class _SeekBarState extends State<_SeekBar> {
                       fontSize: 12)),
             ]),
       ),
-    ]);
-  }
-}
-
-// ---------- Controls ----------
-class _MainControls extends StatelessWidget {
-  final bool isPlaying;
-  final VoidCallback onPlayPause, onNext, onPrev, onShuffle, onRepeat;
-  final AudioServiceShuffleMode shuffleMode;
-  final AudioServiceRepeatMode repeatMode;
-  const _MainControls({
-    required this.isPlaying,
-    required this.onPlayPause,
-    required this.onNext,
-    required this.onPrev,
-    required this.shuffleMode,
-    required this.repeatMode,
-    required this.onShuffle,
-    required this.onRepeat,
-  });
-  @override
-  Widget build(BuildContext context) {
-    final accent = Theme.of(context).colorScheme.primary;
-    IconData repeatIcon() => switch (repeatMode) {
-          AudioServiceRepeatMode.one => Icons.repeat_one_rounded,
-          _ => Icons.repeat_rounded,
-        };
-    final repeatActive = repeatMode != AudioServiceRepeatMode.none;
-    final shuffleActive = shuffleMode == AudioServiceShuffleMode.all;
-    return Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-      IconButton(
-          iconSize: 26,
-          icon: Icon(Icons.shuffle_rounded,
-              color: shuffleActive ? accent : Colors.white),
-          onPressed: onShuffle),
-      IconButton(
-          iconSize: 40,
-          icon: const Icon(Icons.skip_previous_rounded, color: Colors.white),
-          onPressed: onPrev),
-      GestureDetector(
-          onTap: onPlayPause,
-          child: Container(
-            width: 72,
-            height: 72,
-            decoration:
-                const BoxDecoration(color: Colors.white, shape: BoxShape.circle),
-            child: Icon(
-                isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
-                color: Colors.black,
-                size: 40),
-          )),
-      IconButton(
-          iconSize: 40,
-          icon: const Icon(Icons.skip_next_rounded, color: Colors.white),
-          onPressed: onNext),
-      IconButton(
-          iconSize: 26,
-          icon: Icon(repeatIcon(),
-              color: repeatActive ? accent : Colors.white),
-          onPressed: onRepeat),
     ]);
   }
 }

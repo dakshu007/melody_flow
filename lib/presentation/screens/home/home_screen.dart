@@ -4,6 +4,9 @@ import 'package:on_audio_query/on_audio_query.dart';
 
 import '../../../data/models/song.dart';
 import '../../providers/app_providers.dart';
+import '../../widgets/artwork_image.dart';
+import '../../widgets/empty_state.dart';
+import '../../widgets/shimmer_list.dart';
 
 class HomeScreen extends ConsumerWidget {
   const HomeScreen({super.key});
@@ -18,19 +21,24 @@ class HomeScreen extends ConsumerWidget {
     return Scaffold(
       body: SafeArea(
         child: songsAsync.when(
-          loading: () => const Center(child: CircularProgressIndicator()),
-          error: (e, _) => _ErrorState(
-            message: '$e',
-            onRetry: () => ref.invalidate(songsProvider),
+          loading: () => const ShimmerList(itemCount: 8),
+          error: (e, _) => EmptyState(
+            icon: Icons.error_outline_rounded,
+            title: 'Something went wrong',
+            subtitle: '$e',
+            actionLabel: 'Retry',
+            onAction: () => ref.invalidate(songsProvider),
           ),
           data: (songs) {
             if (songs.isEmpty) {
-              return const _EmptyState();
+              return EmptyState.noMusic(
+                onRefresh: () => ref.read(songsProvider.notifier).refresh(),
+              );
             }
             return RefreshIndicator(
               onRefresh: () => ref.read(songsProvider.notifier).refresh(),
               child: ListView(
-                padding: const EdgeInsets.only(top: 8, bottom: 120),
+                padding: const EdgeInsets.only(top: 8, bottom: 140),
                 children: [
                   _header(context),
                   const SizedBox(height: 16),
@@ -79,6 +87,10 @@ class HomeScreen extends ConsumerWidget {
 }
 
 // ---------------------------------------------------------------------------
+// FIXED: Quick picks row — was overflowing because SizedBox(180) couldn't fit
+// 140px artwork + text + subtitle. Solution: use explicit Column heights that
+// sum to the container, ellipsize titles, and give the row enough height.
+// ---------------------------------------------------------------------------
 
 class _QuickPicksRow extends ConsumerWidget {
   final List<Song> songs;
@@ -87,8 +99,10 @@ class _QuickPicksRow extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     if (songs.isEmpty) return const SizedBox.shrink();
+
+    // Artwork 130, gap 8, title ~18, artist ~14 = 170, give container 200 for safety
     return SizedBox(
-      height: 180,
+      height: 200,
       child: ListView.separated(
         padding: const EdgeInsets.symmetric(horizontal: 20),
         scrollDirection: Axis.horizontal,
@@ -96,49 +110,45 @@ class _QuickPicksRow extends ConsumerWidget {
         separatorBuilder: (_, __) => const SizedBox(width: 14),
         itemBuilder: (_, i) {
           final s = songs[i];
-          return GestureDetector(
-            onTap: () => ref
-                .read(audioHandlerProvider)
-                .loadQueue(songs, initialIndex: i),
-            child: SizedBox(
-              width: 140,
+          return SizedBox(
+            width: 130,
+            child: GestureDetector(
+              onTap: () => ref
+                  .read(audioHandlerProvider)
+                  .loadQueue(songs, initialIndex: i),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
                 children: [
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(12),
-                    child: QueryArtworkWidget(
-                      id: s.id,
-                      type: ArtworkType.AUDIO,
-                      artworkBorder: BorderRadius.circular(12),
-                      artworkWidth: 140,
-                      artworkHeight: 140,
-                      artworkFit: BoxFit.cover,
-                      nullArtworkWidget: Container(
-                        width: 140,
-                        height: 140,
-                        decoration: BoxDecoration(
-                          color: Theme.of(context).dividerColor,
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: const Icon(Icons.music_note_rounded, size: 36),
-                      ),
-                    ),
+                  // Artwork
+                  ArtworkImage(
+                    id: s.id,
+                    type: ArtworkType.AUDIO,
+                    size: 130,
+                    borderRadius: 12,
                   ),
                   const SizedBox(height: 8),
+                  // Title — fixed single line with ellipsis
                   Text(
                     s.title,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
+                    softWrap: false,
                     style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                           fontWeight: FontWeight.w600,
+                          fontSize: 13,
                         ),
                   ),
+                  const SizedBox(height: 2),
+                  // Artist
                   Text(
                     s.artist,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.bodySmall,
+                    softWrap: false,
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          fontSize: 11,
+                        ),
                   ),
                 ],
               ),
@@ -174,22 +184,11 @@ class _SongSection extends ConsumerWidget {
         ...songs.take(5).map(
               (s) => ListTile(
                 contentPadding: const EdgeInsets.symmetric(horizontal: 20),
-                leading: ClipRRect(
-                  borderRadius: BorderRadius.circular(6),
-                  child: QueryArtworkWidget(
-                    id: s.id,
-                    type: ArtworkType.AUDIO,
-                    artworkBorder: BorderRadius.circular(6),
-                    artworkWidth: 48,
-                    artworkHeight: 48,
-                    artworkFit: BoxFit.cover,
-                    nullArtworkWidget: Container(
-                      width: 48,
-                      height: 48,
-                      color: Theme.of(context).dividerColor,
-                      child: const Icon(Icons.music_note_rounded),
-                    ),
-                  ),
+                leading: ArtworkImage(
+                  id: s.id,
+                  type: ArtworkType.AUDIO,
+                  size: 48,
+                  borderRadius: 6,
                 ),
                 title: Text(
                   s.title,
@@ -208,62 +207,6 @@ class _SongSection extends ConsumerWidget {
               ),
             ),
       ],
-    );
-  }
-}
-
-class _EmptyState extends StatelessWidget {
-  const _EmptyState();
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(32),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.music_off_rounded,
-                size: 64, color: Theme.of(context).dividerColor),
-            const SizedBox(height: 16),
-            Text(
-              'No music yet',
-              style: Theme.of(context).textTheme.titleLarge,
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Add songs to your device and pull down to refresh.',
-              textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.bodyMedium,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _ErrorState extends StatelessWidget {
-  final String message;
-  final VoidCallback onRetry;
-  const _ErrorState({required this.message, required this.onRetry});
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(32),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(Icons.error_outline_rounded, size: 48),
-            const SizedBox(height: 12),
-            Text(message, textAlign: TextAlign.center),
-            const SizedBox(height: 12),
-            FilledButton.tonal(
-                onPressed: onRetry, child: const Text('Retry')),
-          ],
-        ),
-      ),
     );
   }
 }

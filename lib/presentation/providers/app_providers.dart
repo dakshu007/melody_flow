@@ -1,6 +1,6 @@
 import 'package:audio_service/audio_service.dart';
-import 'package:hive_flutter/hive_flutter.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:hive_flutter/hive_flutter.dart';
 
 import '../../data/models/app_settings.dart';
 import '../../data/models/playlist.dart';
@@ -9,7 +9,7 @@ import '../../data/services/audio_handler.dart';
 import '../../data/services/library_service.dart';
 import '../../data/services/storage_service.dart';
 
-/// Holds the singleton audio handler, set once in main().
+/// Singleton audio handler (set once in main()).
 final audioHandlerProvider = Provider<MelodyAudioHandler>((ref) {
   throw UnimplementedError('audioHandlerProvider must be overridden in main()');
 });
@@ -53,7 +53,7 @@ class SongsNotifier extends StateNotifier<AsyncValue<List<Song>>> {
       );
       state = AsyncValue.data(songs);
 
-      // FIX #10: Restore persisted queue once, after the first successful scan.
+      // Restore persisted queue once after first successful scan
       if (!_queueRestored && _handler != null) {
         _queueRestored = true;
         final byId = {for (final s in songs) s.id: s};
@@ -62,7 +62,6 @@ class SongsNotifier extends StateNotifier<AsyncValue<List<Song>>> {
         );
       }
     } catch (e, st) {
-      // Log but don\'t crash — show empty library
       // ignore: avoid_print
       print('Song scan failed: $e\n$st');
       state = const AsyncValue.data([]);
@@ -71,22 +70,19 @@ class SongsNotifier extends StateNotifier<AsyncValue<List<Song>>> {
 }
 
 final songsProvider =
-    StateNotifierProvider<SongsNotifier, AsyncValue<List<Song>>>(
-  (ref) {
-    // Audio handler may not be available during tests; fall back to null.
-    MelodyAudioHandler? handler;
-    try {
-      handler = ref.watch(audioHandlerProvider);
-    } catch (_) {
-      handler = null;
-    }
-    return SongsNotifier(
-      ref.watch(libraryServiceProvider),
-      ref.watch(storageServiceProvider),
-      handler,
-    );
-  },
-);
+    StateNotifierProvider<SongsNotifier, AsyncValue<List<Song>>>((ref) {
+  MelodyAudioHandler? handler;
+  try {
+    handler = ref.watch(audioHandlerProvider);
+  } catch (_) {
+    handler = null;
+  }
+  return SongsNotifier(
+    ref.watch(libraryServiceProvider),
+    ref.watch(storageServiceProvider),
+    handler,
+  );
+});
 
 // ============================================================================
 // Playlists
@@ -96,6 +92,8 @@ class PlaylistsNotifier extends StateNotifier<List<Playlist>> {
   PlaylistsNotifier(this._storage) : super([]) {
     _load();
     _storage.playlists.listenable().addListener(_load);
+    // ALSO reload when play stats change (affects smart playlist counts)
+    _storage.stats.listenable().addListener(_load);
   }
 
   final StorageService _storage;
@@ -134,14 +132,20 @@ final playlistsProvider =
 );
 
 // ============================================================================
-// Smart playlists derived from play stats
+// Smart playlist derivations — used for BOTH count display and detail screens.
+// FIX: Previously smart playlists had empty songIds lists so the count shown
+// in Playlists screen was always 0 / wrong. Now we derive both contents and
+// counts from the actual sources at render time.
 // ============================================================================
 
-final favoriteIdsProvider = Provider<List<int>>(
-  (ref) => ref.watch(storageServiceProvider).favoriteIds(),
-);
+final favoriteIdsProvider = Provider<List<int>>((ref) {
+  // Watch the play_stats box so counts update when favorites change
+  ref.watch(playlistsProvider);
+  return ref.watch(storageServiceProvider).favoriteIds();
+});
 
 final mostPlayedProvider = Provider<List<Song>>((ref) {
+  ref.watch(playlistsProvider); // rebuild on stats change
   final ids = ref.watch(storageServiceProvider).mostPlayedIds();
   final songs = ref.watch(songsProvider).valueOrNull ?? [];
   final map = {for (final s in songs) s.id: s};
@@ -149,6 +153,7 @@ final mostPlayedProvider = Provider<List<Song>>((ref) {
 });
 
 final recentlyPlayedProvider = Provider<List<Song>>((ref) {
+  ref.watch(playlistsProvider);
   final ids = ref.watch(storageServiceProvider).recentlyPlayedIds();
   final songs = ref.watch(songsProvider).valueOrNull ?? [];
   final map = {for (final s in songs) s.id: s};
@@ -161,8 +166,41 @@ final recentlyAddedProvider = Provider<List<Song>>((ref) {
   return copy.take(50).toList();
 });
 
+/// Count for a smart playlist given its id. Used by the playlists tile.
+int smartPlaylistCount(WidgetRef ref, String smartId) {
+  switch (smartId) {
+    case 'smart_favorites':
+      return ref.watch(favoriteIdsProvider).length;
+    case 'smart_most_played':
+      return ref.watch(mostPlayedProvider).length;
+    case 'smart_recently_played':
+      return ref.watch(recentlyPlayedProvider).length;
+    case 'smart_recently_added':
+      return ref.watch(recentlyAddedProvider).length;
+  }
+  return 0;
+}
+
+/// Resolved songs for a smart playlist.
+List<Song> smartPlaylistSongs(WidgetRef ref, String smartId) {
+  final songs = ref.watch(songsProvider).valueOrNull ?? [];
+  final map = {for (final s in songs) s.id: s};
+  switch (smartId) {
+    case 'smart_favorites':
+      final ids = ref.watch(favoriteIdsProvider);
+      return [for (final id in ids) if (map[id] != null) map[id]!];
+    case 'smart_most_played':
+      return ref.watch(mostPlayedProvider);
+    case 'smart_recently_played':
+      return ref.watch(recentlyPlayedProvider);
+    case 'smart_recently_added':
+      return ref.watch(recentlyAddedProvider);
+  }
+  return const [];
+}
+
 // ============================================================================
-// Now Playing - exposes audio_service state for UI
+// Now Playing
 // ============================================================================
 
 final playbackStateStreamProvider = StreamProvider<PlaybackState>(
@@ -196,7 +234,27 @@ class SettingsNotifier extends StateNotifier<AppSettings> {
   void update(AppSettings Function(AppSettings current) f) {
     final next = f(state);
     _storage.saveSettings(next);
-    state = next;
+    // Create a new object reference so ConsumerWidgets rebuild.
+    state = AppSettings(
+      themeMode: next.themeMode,
+      accentColorValue: next.accentColorValue,
+      useMaterialYou: next.useMaterialYou,
+      dynamicColorFromArtwork: next.dynamicColorFromArtwork,
+      songSort: next.songSort,
+      sortAscending: next.sortAscending,
+      crossfadeMs: next.crossfadeMs,
+      gaplessPlayback: next.gaplessPlayback,
+      fadeInOut: next.fadeInOut,
+      replayGainEnabled: next.replayGainEnabled,
+      sleepTimerDefaultMin: next.sleepTimerDefaultMin,
+      minTrackLengthSec: next.minTrackLengthSec,
+      excludedFolders: List.of(next.excludedFolders),
+      artistSeparator: next.artistSeparator,
+      genreSeparator: next.genreSeparator,
+      nowPlayingTheme: next.nowPlayingTheme,
+      showLyricsButton: next.showLyricsButton,
+      shuffleOnStart: next.shuffleOnStart,
+    );
   }
 }
 

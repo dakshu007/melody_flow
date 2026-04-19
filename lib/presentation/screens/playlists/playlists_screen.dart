@@ -32,11 +32,11 @@ class PlaylistsScreen extends ConsumerWidget {
         ],
       ),
       body: ListView(
-        padding: const EdgeInsets.only(bottom: 120),
+        padding: const EdgeInsets.only(bottom: 140),
         children: [
           if (smart.isNotEmpty) ...[
             const _SectionHeader('Smart playlists'),
-            ...smart.map((p) => _PlaylistTile(playlist: p, smart: true)),
+            ...smart.map((p) => _SmartPlaylistTile(playlist: p)),
           ],
           const _SectionHeader('Your playlists'),
           if (user.isEmpty)
@@ -44,7 +44,7 @@ class PlaylistsScreen extends ConsumerWidget {
               onCreate: () => _showCreateDialog(context, ref),
             )
           else
-            ...user.map((p) => _PlaylistTile(playlist: p, smart: false)),
+            ...user.map((p) => _UserPlaylistTile(playlist: p)),
         ],
       ),
     );
@@ -102,50 +102,77 @@ class _SectionHeader extends StatelessWidget {
   }
 }
 
-class _PlaylistTile extends ConsumerWidget {
-  final Playlist playlist;
-  final bool smart;
-  const _PlaylistTile({required this.playlist, required this.smart});
-
-  IconData _iconForSmart(String name) {
-    switch (name) {
-      case 'Favorites':
-        return Icons.favorite_rounded;
-      case 'Most Played':
-        return Icons.local_fire_department_rounded;
-      case 'Recently Played':
-        return Icons.history_rounded;
-      case 'Recently Added':
-        return Icons.new_releases_rounded;
-      default:
-        return Icons.queue_music_rounded;
-    }
+IconData _iconForSmart(String name) {
+  switch (name) {
+    case 'Favorites':
+      return Icons.favorite_rounded;
+    case 'Most Played':
+      return Icons.local_fire_department_rounded;
+    case 'Recently Played':
+      return Icons.history_rounded;
+    case 'Recently Added':
+      return Icons.new_releases_rounded;
+    default:
+      return Icons.queue_music_rounded;
   }
+}
 
-  Future<List<Song>> _resolveSongs(WidgetRef ref) async {
-    final storage = ref.read(storageServiceProvider);
-    final allSongs = ref.read(songsProvider).valueOrNull ?? [];
-    final map = {for (final s in allSongs) s.id: s};
+// ----- FIXED: SMART playlist tile reads counts from derived providers -----
+class _SmartPlaylistTile extends ConsumerWidget {
+  final Playlist playlist;
+  const _SmartPlaylistTile({required this.playlist});
 
-    if (smart) {
-      switch (playlist.id) {
-        case 'smart_favorites':
-          return storage.favoriteIds()
-              .map((id) => map[id])
-              .whereType<Song>()
-              .toList();
-        case 'smart_most_played':
-          return ref.read(mostPlayedProvider);
-        case 'smart_recently_played':
-          return ref.read(recentlyPlayedProvider);
-        case 'smart_recently_added':
-          return ref.read(recentlyAddedProvider);
-      }
-    }
-    return playlist.songIds
-        .map((id) => map[id])
-        .whereType<Song>()
-        .toList();
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final songs = smartPlaylistSongs(ref, playlist.id);
+    final subtitle = songs.isEmpty
+        ? '0 songs'
+        : Format.listSummary(songs);
+
+    return ListTile(
+      contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
+      leading: Container(
+        width: 50,
+        height: 50,
+        decoration: BoxDecoration(
+          color: Theme.of(context).dividerColor,
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: Icon(_iconForSmart(playlist.name), size: 26),
+      ),
+      title: Text(playlist.name,
+          style: const TextStyle(fontWeight: FontWeight.w600)),
+      subtitle: Text(subtitle),
+      onTap: () {
+        Haptics.light();
+        Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) => PlaylistDetailScreen(playlistId: playlist.id),
+          ),
+        );
+      },
+      onLongPress: () {
+        CollectionQuickActions.show(
+          context,
+          title: playlist.name,
+          subtitle: subtitle,
+          leadingIcon: _iconForSmart(playlist.name),
+          loadSongs: () async => songs,
+        );
+      },
+    );
+  }
+}
+
+// ----- USER playlist tile uses regular songIds from the playlist itself -----
+class _UserPlaylistTile extends ConsumerWidget {
+  final Playlist playlist;
+  const _UserPlaylistTile({required this.playlist});
+
+  List<Song> _resolveSongs(WidgetRef ref) {
+    final all = ref.watch(songsProvider).valueOrNull ?? [];
+    final map = {for (final s in all) s.id: s};
+    return playlist.songIds.map((id) => map[id]).whereType<Song>().toList();
   }
 
   Future<void> _confirmDelete(BuildContext context, WidgetRef ref) async {
@@ -198,65 +225,52 @@ class _PlaylistTile extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    return FutureBuilder<List<Song>>(
-      future: _resolveSongs(ref),
-      builder: (context, snap) {
-        final songs = snap.data ?? const <Song>[];
-        final subtitle = songs.isEmpty
-            ? '${playlist.songCount} songs'
-            : Format.listSummary(songs);
+    final songs = _resolveSongs(ref);
+    final subtitle = songs.isEmpty
+        ? '${playlist.songCount} songs'
+        : Format.listSummary(songs);
 
-        return ListTile(
-          contentPadding:
-              const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
-          leading: Container(
-            width: 50,
-            height: 50,
-            decoration: BoxDecoration(
-              color: Theme.of(context).dividerColor,
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: Icon(
-              smart ? _iconForSmart(playlist.name) : Icons.queue_music_rounded,
-              size: 26,
-            ),
+    return ListTile(
+      contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
+      leading: Container(
+        width: 50,
+        height: 50,
+        decoration: BoxDecoration(
+          color: Theme.of(context).dividerColor,
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: const Icon(Icons.queue_music_rounded, size: 26),
+      ),
+      title: Text(playlist.name,
+          style: const TextStyle(fontWeight: FontWeight.w600)),
+      subtitle: Text(subtitle),
+      trailing: PopupMenuButton<String>(
+        icon: const Icon(Icons.more_vert_rounded),
+        itemBuilder: (_) => const [
+          PopupMenuItem(value: 'rename', child: Text('Rename')),
+          PopupMenuItem(value: 'delete', child: Text('Delete')),
+        ],
+        onSelected: (v) {
+          if (v == 'rename') _showRenameDialog(context, ref);
+          if (v == 'delete') _confirmDelete(context, ref);
+        },
+      ),
+      onTap: () {
+        Haptics.light();
+        Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) => PlaylistDetailScreen(playlistId: playlist.id),
           ),
-          title: Text(playlist.name,
-              style: const TextStyle(fontWeight: FontWeight.w600)),
-          subtitle: Text(subtitle),
-          trailing: smart
-              ? null
-              : PopupMenuButton<String>(
-                  icon: const Icon(Icons.more_vert_rounded),
-                  itemBuilder: (_) => const [
-                    PopupMenuItem(value: 'rename', child: Text('Rename')),
-                    PopupMenuItem(value: 'delete', child: Text('Delete')),
-                  ],
-                  onSelected: (v) {
-                    if (v == 'rename') _showRenameDialog(context, ref);
-                    if (v == 'delete') _confirmDelete(context, ref);
-                  },
-                ),
-          onTap: () {
-            Haptics.light();
-            Navigator.of(context).push(
-              MaterialPageRoute(
-                builder: (_) => PlaylistDetailScreen(playlistId: playlist.id),
-              ),
-            );
-          },
-          onLongPress: () {
-            CollectionQuickActions.show(
-              context,
-              title: playlist.name,
-              subtitle: subtitle,
-              leadingIcon: smart
-                  ? _iconForSmart(playlist.name)
-                  : Icons.queue_music_rounded,
-              loadSongs: () => _resolveSongs(ref),
-              onDelete: smart ? null : () => _confirmDelete(context, ref),
-            );
-          },
+        );
+      },
+      onLongPress: () {
+        CollectionQuickActions.show(
+          context,
+          title: playlist.name,
+          subtitle: subtitle,
+          leadingIcon: Icons.queue_music_rounded,
+          loadSongs: () async => songs,
+          onDelete: () => _confirmDelete(context, ref),
         );
       },
     );
