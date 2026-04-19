@@ -1,3 +1,23 @@
+#!/bin/bash
+# Melody Flow — Fix widget_bridge.dart compile error
+# Root cause: I used `handler.playing` which doesn't exist on MelodyAudioHandler.
+# The handler exposes `playingStream` but not a sync getter. Solution: track
+# the latest playing state via a cached variable updated from the stream.
+#
+# Run from project root:
+#   bash fix_widget_bridge.sh
+
+set -e
+
+echo "🔧 Fixing widget_bridge.dart compile error..."
+echo ""
+
+if [ ! -f "pubspec.yaml" ]; then
+  echo "❌ Run from inside the melody_flow folder."
+  exit 1
+fi
+
+cat > lib/data/services/widget_bridge.dart << 'EOF'
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -135,3 +155,22 @@ class WidgetBridge {
     }
   }
 }
+EOF
+
+echo "✅ widget_bridge.dart rewritten with proper stream-based state tracking"
+echo ""
+
+git add -A
+git status --short
+echo ""
+
+git commit -m "Fix: widget_bridge compile error — track playing state via stream instead of non-existent .playing getter"
+git push
+
+echo ""
+echo "🎉 Pushed. CI rebuilding now."
+echo "   Watch: https://github.com/dakshu007/melody_flow/actions"
+echo ""
+echo "   Expected:"
+echo "     ✓ build-debug   → green"
+echo "     ✓ build-release → green + AAB artifact"
