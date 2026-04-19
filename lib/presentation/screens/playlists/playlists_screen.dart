@@ -21,17 +21,7 @@ class PlaylistsScreen extends ConsumerWidget {
     final user = playlists.where((p) => !p.isSmart).toList();
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Playlists',
-            style: TextStyle(fontSize: 24, fontWeight: FontWeight.w800)),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.add_rounded),
-            onPressed: () => _showCreateDialog(context, ref),
-          ),
-        ],
-      ),
-      body: ListView(
+            body: ListView(
         padding: const EdgeInsets.only(bottom: 140),
         children: [
           if (smart.isNotEmpty) ...[

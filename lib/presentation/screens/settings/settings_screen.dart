@@ -19,11 +19,7 @@ class SettingsScreen extends ConsumerWidget {
     final notifier = ref.read(settingsProvider.notifier);
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Settings',
-            style: TextStyle(fontSize: 24, fontWeight: FontWeight.w800)),
-      ),
-      body: ListView(
+            body: ListView(
         padding: const EdgeInsets.only(bottom: 140),
         children: [
           const _Section('Appearance'),

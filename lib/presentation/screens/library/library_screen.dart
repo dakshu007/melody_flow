@@ -49,72 +49,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Library',
-            style: TextStyle(fontSize: 24, fontWeight: FontWeight.w800)),
-        actions: [
-          PopupMenuButton<String>(
-            icon: const Icon(Icons.sort_rounded),
-            onSelected: (v) {
-              setState(() {
-                switch (v) {
-                  case 'title':
-                    _sortType = SongSortType.TITLE;
-                  case 'artist':
-                    _sortType = SongSortType.ARTIST;
-                  case 'album':
-                    _sortType = SongSortType.ALBUM;
-                  case 'date':
-                    _sortType = SongSortType.DATE_ADDED;
-                  case 'duration':
-                    _sortType = SongSortType.DURATION;
-                  case 'order':
-                    _order = _order == OrderType.ASC_OR_SMALLER
-                        ? OrderType.DESC_OR_GREATER
-                        : OrderType.ASC_OR_SMALLER;
-                }
-              });
-              ref.read(settingsProvider.notifier).update((c) {
-                c.songSort = _sortType.index;
-                c.sortAscending = _order == OrderType.ASC_OR_SMALLER;
-                return c;
-              });
-              ref.read(songsProvider.notifier).refresh();
-            },
-            itemBuilder: (_) => const [
-              PopupMenuItem(value: 'title', child: Text('Sort by title')),
-              PopupMenuItem(value: 'artist', child: Text('Sort by artist')),
-              PopupMenuItem(value: 'album', child: Text('Sort by album')),
-              PopupMenuItem(value: 'date', child: Text('Sort by date added')),
-              PopupMenuItem(value: 'duration', child: Text('Sort by duration')),
-              PopupMenuDivider(),
-              PopupMenuItem(value: 'order', child: Text('Toggle asc / desc')),
-            ],
-          ),
-          IconButton(
-            icon: const Icon(Icons.refresh_rounded),
-            onPressed: () {
-              Haptics.light();
-              ref.read(songsProvider.notifier).refresh();
-            },
-          ),
-        ],
-        bottom: TabBar(
-          controller: _tabs,
-          isScrollable: true,
-          tabAlignment: TabAlignment.start,
-          labelStyle:
-              const TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
-          tabs: const [
-            Tab(text: 'Songs'),
-            Tab(text: 'Albums'),
-            Tab(text: 'Artists'),
-            Tab(text: 'Genres'),
-            Tab(text: 'Folders'),
-          ],
-        ),
-      ),
-      body: TabBarView(
+            body: TabBarView(
         controller: _tabs,
         children: const [
           _SongsTab(),
