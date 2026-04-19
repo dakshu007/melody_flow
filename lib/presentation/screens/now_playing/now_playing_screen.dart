@@ -25,17 +25,33 @@ class NowPlayingScreen extends ConsumerStatefulWidget {
 class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
   Color _bgColor = const Color(0xFF1E1E1E);
   int? _lastArtSongId;
+  bool _extractionRunning = false;
   bool _showLyrics = false;
   double _dragY = 0;
   static const _dismissThreshold = 120.0;
 
+  /// Extract a dominant color from the current song's artwork.
+  ///
+  /// Safe against:
+  ///  - Theme rebuilds (widget deactivation while async in-flight)
+  ///  - Concurrent calls for the same song (dedupes via _extractionRunning)
+  ///  - Dispose during async (mounted check before setState)
+  ///  - Mid-build setState (uses addPostFrameCallback)
   Future<void> _extractColor(int songId, {required bool enabled}) async {
     if (!enabled) {
-      setState(() => _bgColor = const Color(0xFF1E1E1E));
+      // Reset only if we had a non-default color; guard against mid-build setState.
+      if (_bgColor != const Color(0xFF1E1E1E)) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) setState(() => _bgColor = const Color(0xFF1E1E1E));
+        });
+      }
       return;
     }
     if (_lastArtSongId == songId) return;
+    if (_extractionRunning) return;
+    _extractionRunning = true;
     _lastArtSongId = songId;
+
     try {
       final art = await OnAudioQuery()
           .queryArtwork(songId, ArtworkType.AUDIO, size: 200);
@@ -43,13 +59,21 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
       final palette =
           await PaletteGenerator.fromImageProvider(MemoryImage(art));
       if (!mounted) return;
-      setState(() {
-        _bgColor = palette.darkMutedColor?.color ??
-            palette.darkVibrantColor?.color ??
-            palette.dominantColor?.color ??
-            const Color(0xFF1E1E1E);
+
+      final newColor = palette.darkMutedColor?.color ??
+          palette.darkVibrantColor?.color ??
+          palette.dominantColor?.color ??
+          const Color(0xFF1E1E1E);
+
+      // Defer setState to next frame so we're never inside a build() call
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) setState(() => _bgColor = newColor);
       });
-    } catch (_) {}
+    } catch (_) {
+      // Ignore — any failure just keeps the default color
+    } finally {
+      _extractionRunning = false;
+    }
   }
 
   @override
@@ -66,7 +90,12 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
 
     final songId = mediaItem.extras?['songId'] as int?;
     if (songId != null) {
-      _extractColor(songId, enabled: settings.dynamicColorFromArtwork);
+      // Defer to post-frame so async work never starts during build()
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          _extractColor(songId, enabled: settings.dynamicColorFromArtwork);
+        }
+      });
     }
 
     final duration = mediaItem.duration ?? Duration.zero;
@@ -498,10 +527,14 @@ class _BlurredBackdropState extends State<_BlurredBackdrop> {
         size: 400,
       );
       if (!mounted) return;
-      setState(() => _bytes = b);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) setState(() => _bytes = b);
+      });
     } catch (_) {
       if (!mounted) return;
-      setState(() => _bytes = null);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) setState(() => _bytes = null);
+      });
     }
   }
 

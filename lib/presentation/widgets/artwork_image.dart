@@ -97,14 +97,20 @@ class _ArtworkImageState extends State<ArtworkImage> {
       );
       _ArtCache.instance.put(_key, bytes);
       if (!mounted) return;
-      setState(() {
-        _bytes = bytes;
-        _tried = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          setState(() {
+            _bytes = bytes;
+            _tried = true;
+          });
+        }
       });
     } catch (_) {
       _ArtCache.instance.put(_key, null);
       if (!mounted) return;
-      setState(() => _tried = true);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) setState(() => _tried = true);
+      });
     } finally {
       _loading = false;
     }
