@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Widget metadata.
+    - minWidth/minHeight define the initial size (4 cells wide, 1 tall)
+    - resizeMode allows the user to resize horizontally and vertically
+    - updatePeriodMillis 0 means we handle updates ourselves (via broadcasts
+      from the audio service) — never rely on Android's 30-min minimum
+-->
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:initialLayout="@layout/widget_4x1"
+    android:minWidth="250dp"
+    android:minHeight="70dp"
+    android:minResizeWidth="180dp"
+    android:minResizeHeight="70dp"
+    android:maxResizeWidth="480dp"
+    android:maxResizeHeight="140dp"
+    android:targetCellWidth="4"
+    android:targetCellHeight="1"
+    android:resizeMode="horizontal|vertical"
+    android:widgetCategory="home_screen"
+    android:previewImage="@mipmap/ic_launcher"
+    android:description="@string/widget_description"
+    android:updatePeriodMillis="0" />

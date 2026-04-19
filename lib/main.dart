@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'core/theme/app_theme.dart';
 import 'data/services/audio_handler.dart';
+import 'data/services/widget_bridge.dart';
 import 'data/services/storage_service.dart';
 import 'presentation/providers/app_providers.dart';
 import 'presentation/screens/home/home_shell.dart';

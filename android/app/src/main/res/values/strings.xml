@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="widget_description">Music controls for Melody Flow</string>
+    <string name="widget_default_title">Melody Flow</string>
+    <string name="widget_default_subtitle">Tap to start playing</string>
+</resources>

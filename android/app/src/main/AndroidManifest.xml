@@ -88,5 +88,19 @@
         <!-- Android Auto support -->
         <meta-data android:name="com.google.android.gms.car.application"
             android:resource="@xml/automotive_app_desc" />
+    
+        <!-- Melody Flow 4x1 home-screen widget -->
+        <receiver android:name=".MelodyWidgetProvider"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+                <action android:name="com.melodyflow.app.PLAY_PAUSE" />
+                <action android:name="com.melodyflow.app.SKIP_NEXT" />
+                <action android:name="com.melodyflow.app.SKIP_PREV" />
+                <action android:name="com.melodyflow.app.WIDGET_REFRESH" />
+            </intent-filter>
+            <meta-data android:name="android.appwidget.provider"
+                android:resource="@xml/melody_widget_info" />
+        </receiver>
     </application>
 </manifest>
