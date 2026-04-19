@@ -40,33 +40,29 @@ android {
         multiDexEnabled true
     }
 
-    
-    signingConfigs {
-        // To sign for Play Store:
-        // 1. keytool -genkey -v -keystore ~/melody-upload.jks -keyalg RSA -keysize 2048 -validity 10000 -alias upload
-        // 2. Create android/key.properties with:
-        //      storeFile=/full/path/to/melody-upload.jks
-        //      storePassword=YOUR_PASSWORD
-        //      keyPassword=YOUR_PASSWORD
-        //      keyAlias=upload
-        // 3. Uncomment this block:
-        // release {
-        //     def keystoreProperties = new Properties()
-        //     def keystorePropertiesFile = rootProject.file('key.properties')
-        //     if (keystorePropertiesFile.exists()) {
-        //         keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
-        //     }
-        //     keyAlias keystoreProperties['keyAlias']
-        //     keyPassword keystoreProperties['keyPassword']
-        //     storeFile keystoreProperties['storeFile'] ? file(keystoreProperties['storeFile']) : null
-        //     storePassword keystoreProperties['storePassword']
-        // }
+        signingConfigs {
+        release {
+            if (keystorePropertiesFile.exists()) {
+                keyAlias keystoreProperties['keyAlias']
+                keyPassword keystoreProperties['keyPassword']
+                // storeFile can be an absolute path (local dev) or a filename
+                // next to key.properties (CI). Support both.
+                def storePath = keystoreProperties['storeFile']
+                if (storePath.startsWith('/') || storePath.contains(':')) {
+                    storeFile file(storePath)
+                } else {
+                    storeFile file("${projectDir}/${storePath}")
+                }
+                storePassword keystoreProperties['storePassword']
+            }
+        }
     }
 
     buildTypes {
         release {
+            signingConfig signingConfigs.release
             // Replace with your upload keystore before publishing.
-            signingConfig signingConfigs.debug
+
             minifyEnabled true
             shrinkResources true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'

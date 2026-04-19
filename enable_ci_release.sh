@@ -1,3 +1,24 @@
+#!/bin/bash
+# Melody Flow — Enable CI-signed release builds
+# After you've added the 4 GitHub secrets, run this to update the workflow.
+#   bash enable_ci_release.sh
+
+set -e
+
+echo "🔐 Enabling CI-signed release builds..."
+echo ""
+
+if [ ! -f "pubspec.yaml" ]; then
+  echo "❌ Run from inside the melody_flow folder."
+  exit 1
+fi
+
+# ----------------------------------------------------------------------------
+# Overwrite the workflow to add a signed-release job
+# ----------------------------------------------------------------------------
+mkdir -p .github/workflows
+
+cat > .github/workflows/build-apk.yml << 'EOF'
 name: Build APK
 
 on:
@@ -125,3 +146,86 @@ jobs:
         run: |
           rm -f android/app/melody-release.jks
           rm -f android/app/key.properties
+EOF
+
+echo "✅ Workflow written to .github/workflows/build-apk.yml"
+
+# ----------------------------------------------------------------------------
+# Also update the local build.gradle so CI's key.properties is found.
+# CI stores the keystore file next to the properties file, so we need to
+# support both: absolute path (local) and relative filename (CI).
+# ----------------------------------------------------------------------------
+python3 << 'PYEOF'
+import re
+
+path = 'android/app/build.gradle'
+with open(path) as f:
+    content = f.read()
+
+# Change signingConfigs.release to resolve storeFile relative to the
+# build.gradle's folder when it's a bare filename (no slashes).
+old = '''    signingConfigs {
+        release {
+            if (keystorePropertiesFile.exists()) {
+                keyAlias keystoreProperties['keyAlias']
+                keyPassword keystoreProperties['keyPassword']
+                storeFile file(keystoreProperties['storeFile'])
+                storePassword keystoreProperties['storePassword']
+            }
+        }
+    }'''
+
+new = '''    signingConfigs {
+        release {
+            if (keystorePropertiesFile.exists()) {
+                keyAlias keystoreProperties['keyAlias']
+                keyPassword keystoreProperties['keyPassword']
+                // storeFile can be an absolute path (local dev) or a filename
+                // next to key.properties (CI). Support both.
+                def storePath = keystoreProperties['storeFile']
+                if (storePath.startsWith('/') || storePath.contains(':')) {
+                    storeFile file(storePath)
+                } else {
+                    storeFile file("${projectDir}/${storePath}")
+                }
+                storePassword keystoreProperties['storePassword']
+            }
+        }
+    }'''
+
+if old in content:
+    content = content.replace(old, new)
+    with open(path, 'w') as f:
+        f.write(content)
+    print("   ✓ build.gradle now supports both local and CI keystore paths")
+else:
+    print("   (signingConfigs already updated or different — skipping)")
+PYEOF
+
+echo ""
+echo "---- Committing and pushing ----"
+git add -A
+git status --short
+echo ""
+
+git commit -m "CI: build signed release APK + AAB using GitHub secrets"
+git push
+
+echo ""
+echo "🎉 Done! CI will now build your signed AAB automatically."
+echo ""
+echo "   Watch the build: https://github.com/dakshu007/melody_flow/actions"
+echo ""
+echo "   In ~5 minutes you'll see two jobs run:"
+echo "     • build-debug (unsigned APK for testing)"
+echo "     • build-release (signed APK + AAB for Play Store)"
+echo ""
+echo "   When build-release finishes (green check), scroll to the bottom"
+echo "   of the run page and look for the 'Artifacts' section:"
+echo ""
+echo "     📦 melody-flow-release-apk   ← sideload this one"
+echo "     📦 melody-flow-release-aab   ← UPLOAD THIS TO PLAY STORE"
+echo ""
+echo "⚠️  If the build-release job shows a red X, it usually means one of"
+echo "   the 4 secrets is missing or wrong. Double-check at:"
+echo "   https://github.com/dakshu007/melody_flow/settings/secrets/actions"

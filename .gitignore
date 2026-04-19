@@ -31,3 +31,4 @@ ios/Runner/GeneratedPluginRegistrant.*
 
 **/.DS_Store
 coverage/
+android/app/key.properties

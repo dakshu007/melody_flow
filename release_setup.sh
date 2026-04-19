@@ -1,7 +1,7 @@
 #!/bin/bash
-# Melody Flow — Release Setup
-# Generates a keystore, wires signing, builds release APK + AAB for Play Store.
-# Run once per machine:
+# Melody Flow — Release Setup (fixed)
+# Generates keystore, wires signing, builds signed release APK + AAB
+# Run once:
 #   bash release_setup.sh
 
 set -e
@@ -16,104 +16,141 @@ if [ ! -f "pubspec.yaml" ]; then
 fi
 
 # ----------------------------------------------------------------------------
-# Step 1: Create keystore (if not already present)
+# Step 1: Create keystore (interactive password prompt)
 # ----------------------------------------------------------------------------
 KEYSTORE_PATH="$HOME/melody-flow-release.jks"
 
 if [ -f "$KEYSTORE_PATH" ]; then
   echo "✅ [1/4] Keystore already exists at $KEYSTORE_PATH"
-  echo "   Skipping creation."
+  echo "   Skipping creation — we'll use the existing one."
 else
   echo "✅ [1/4] Creating new keystore..."
   echo ""
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-  echo "⚠️  IMPORTANT: You will be prompted for a password."
-  echo "    REMEMBER THIS PASSWORD — you will need it:"
-  echo "      • Every time you build a release"
-  echo "      • For the lifetime of the app on Play Store"
+  echo "⚠️  YOU WILL BE ASKED FOR A PASSWORD:"
   echo ""
-  echo "    LOSING THIS PASSWORD = cannot update your app ever again."
-  echo "    Save it in your password manager NOW."
+  echo "   Type the SAME password BOTH times when asked"
+  echo "   (once for 'keystore password', then 'key password')"
+  echo ""
+  echo "   Requirements:"
+  echo "     • Minimum 6 characters"
+  echo "     • Can't be recovered if lost"
+  echo "     • You'll need this every time you release an update"
+  echo ""
+  echo "   💾 SAVE IT IN YOUR PASSWORD MANAGER NOW"
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
   echo ""
-  read -rp "Press Enter to continue..."
+  read -rp "Press Enter when ready..."
+  echo ""
 
+  # Pre-fill the distinguished-name fields so user only has to answer passwords.
+  # keytool will prompt for:
+  #   1. Keystore password
+  #   2. Re-enter keystore password
+  #   3. Key password (press Enter to reuse keystore password — recommended)
   keytool -genkey -v \
     -keystore "$KEYSTORE_PATH" \
     -keyalg RSA \
     -keysize 2048 \
     -validity 10000 \
     -alias melody_upload \
-    -storepass "" \
-    -keypass "" || {
-      # If no password was typed, fail clearly
-      echo ""
-      echo "❌ Keystore creation failed. Re-run and enter password when prompted."
-      exit 1
-    }
+    -dname "CN=Melody Flow, OU=App, O=Melody Flow, L=City, ST=State, C=IN"
 
   echo ""
   echo "✅ Keystore created at: $KEYSTORE_PATH"
 fi
 
 # ----------------------------------------------------------------------------
-# Step 2: Write android/key.properties
+# Step 2: Get the password again and write android/app/key.properties
 # ----------------------------------------------------------------------------
 echo ""
-echo "✅ [2/4] Creating android/key.properties"
+echo "✅ [2/4] Storing keystore password for Gradle..."
 echo ""
-echo "Enter the keystore password you just used:"
+echo "   Enter the SAME password you used above (it won't display):"
 read -rs KEYSTORE_PASS
 echo ""
 
-cat > android/key.properties << EOF
+if [ -z "$KEYSTORE_PASS" ]; then
+  echo "❌ Password was empty. Re-run the script and type a real password."
+  exit 1
+fi
+
+if [ ${#KEYSTORE_PASS} -lt 6 ]; then
+  echo "❌ Password must be at least 6 characters. Re-run."
+  exit 1
+fi
+
+# Verify the password actually opens the keystore before saving
+if ! keytool -list -keystore "$KEYSTORE_PATH" -storepass "$KEYSTORE_PASS" > /dev/null 2>&1; then
+  echo "❌ That password doesn't unlock the keystore at $KEYSTORE_PATH."
+  echo "   Re-run the script and enter the correct password."
+  exit 1
+fi
+
+mkdir -p android/app
+cat > android/app/key.properties << EOF
 storePassword=$KEYSTORE_PASS
 keyPassword=$KEYSTORE_PASS
 keyAlias=melody_upload
 storeFile=$KEYSTORE_PATH
 EOF
 
-# Make sure this file isn't committed
-if ! grep -q "android/key.properties" .gitignore 2>/dev/null; then
+# Remove any old location
+rm -f android/key.properties
+
+# Make sure secrets never get committed
+touch .gitignore
+if ! grep -q "android/app/key.properties" .gitignore; then
+  echo "android/app/key.properties" >> .gitignore
+fi
+if ! grep -q "android/key.properties" .gitignore; then
   echo "android/key.properties" >> .gitignore
 fi
-if ! grep -q "\*.jks" .gitignore 2>/dev/null; then
+if ! grep -q "^\*.jks$" .gitignore; then
   echo "*.jks" >> .gitignore
 fi
+if ! grep -q "^\*.keystore$" .gitignore; then
+  echo "*.keystore" >> .gitignore
+fi
 
-echo "   ✓ android/key.properties written (gitignored — never commits)"
+echo "   ✓ Saved to android/app/key.properties (gitignored — never committed)"
 
 # ----------------------------------------------------------------------------
 # Step 3: Wire signing config into android/app/build.gradle
 # ----------------------------------------------------------------------------
-echo "✅ [3/4] Wiring signing into build.gradle..."
+echo ""
+echo "✅ [3/4] Wiring signing config into build.gradle..."
 
 python3 << 'PYEOF'
-with open('android/app/build.gradle', 'r') as f:
+import re
+
+path = 'android/app/build.gradle'
+with open(path, 'r') as f:
     content = f.read()
 
-# Check if already wired
-if 'keystoreProperties' in content:
-    print("   Already wired, skipping")
-else:
-    # Add key loading at the top (after plugin declarations)
-    top_block = '''
+# ---- 1. Add keystoreProperties loader at the top (before `android {`) ----
+loader_block = '''
 def keystoreProperties = new Properties()
 def keystorePropertiesFile = rootProject.file('app/key.properties')
 if (keystorePropertiesFile.exists()) {
     keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
 }
-'''
-    # Find position after last "id ..." in the plugins {} block
-    import re
-    m = re.search(r'^plugins \{[\s\S]*?\}\s*$', content, re.MULTILINE)
-    if m:
-        insert_at = m.end()
-        content = content[:insert_at] + '\n' + top_block + content[insert_at:]
 
-    # Replace the existing signingConfigs block (which was commented out) with a real one
-    sign_block = '''
-    signingConfigs {
+'''
+
+if 'keystoreProperties' not in content:
+    # Insert right before `android {`
+    content = re.sub(
+        r'^(android \{)',
+        loader_block + r'\1',
+        content,
+        count=1,
+        flags=re.MULTILINE,
+    )
+    print("   ✓ Added keystoreProperties loader")
+
+# ---- 2. Replace existing signingConfigs with a working release config ----
+working_signing = '''    signingConfigs {
         release {
             if (keystorePropertiesFile.exists()) {
                 keyAlias keystoreProperties['keyAlias']
@@ -124,73 +161,139 @@ if (keystorePropertiesFile.exists()) {
         }
     }
 '''
-    # Strip any existing signingConfigs block
-    content = re.sub(
-        r'signingConfigs\s*\{[^}]*(?:\{[^}]*\}[^}]*)*\}',
-        sign_block.strip(),
-        content,
-        count=1,
-    )
 
-    # Replace the release buildType's signingConfig
-    content = re.sub(
-        r'release\s*\{[^}]*signingConfig\s+signingConfigs\.\w+',
-        'release {\n            signingConfig signingConfigs.release',
-        content,
-    )
+# Strip any existing signingConfigs { ... } block, however formatted
+def strip_block(text, name):
+    pattern = re.compile(rf'\n\s*{name}\s*\{{')
+    m = pattern.search(text)
+    if not m:
+        return text
+    start = m.start()
+    depth = 0
+    i = m.end() - 1  # at opening brace
+    while i < len(text):
+        c = text[i]
+        if c == '{':
+            depth += 1
+        elif c == '}':
+            depth -= 1
+            if depth == 0:
+                return text[:start] + text[i+1:]
+        i += 1
+    return text
 
-    with open('android/app/build.gradle', 'w') as f:
-        f.write(content)
-    print("   Signing wired into build.gradle")
+content = strip_block(content, 'signingConfigs')
+
+# Insert a fresh signingConfigs block right before `buildTypes`
+if 'buildTypes' in content:
+    content = content.replace(
+        'buildTypes {',
+        working_signing + '\n    buildTypes {',
+        1,
+    )
+    print("   ✓ Added signingConfigs.release")
+
+# ---- 3. Make the release buildType USE signingConfigs.release ----
+# Find the release buildType inside buildTypes { release { ... } }
+# and set its signingConfig to signingConfigs.release
+def set_release_signing(text):
+    # Find `release {` inside buildTypes
+    # Tolerate whatever is already there (debug keystore, commented out, etc.)
+    bt_match = re.search(r'buildTypes\s*\{', text)
+    if not bt_match:
+        return text
+    i = bt_match.end()
+    # Find `release {` after it
+    rel_match = re.search(r'\brelease\s*\{', text[i:])
+    if not rel_match:
+        return text
+    block_start = i + rel_match.end()
+    depth = 1
+    j = block_start
+    while j < len(text) and depth > 0:
+        c = text[j]
+        if c == '{':
+            depth += 1
+        elif c == '}':
+            depth -= 1
+        j += 1
+    block_end = j - 1  # points at the closing `}`
+    inner = text[block_start:block_end]
+    # Remove existing signingConfig line(s)
+    inner = re.sub(r'^\s*signingConfig\s+.*$', '', inner, flags=re.MULTILINE)
+    # Insert ours at the top
+    inner = '\n            signingConfig signingConfigs.release' + inner
+    return text[:block_start] + inner + text[block_end:]
+
+content = set_release_signing(content)
+print("   ✓ Wired release buildType to use signingConfigs.release")
+
+with open(path, 'w') as f:
+    f.write(content)
 PYEOF
 
-# The python patch above places key.properties at app/key.properties
-# Move it there if we wrote it to android/
-if [ -f "android/key.properties" ] && [ ! -f "android/app/key.properties" ]; then
-  mv android/key.properties android/app/key.properties
-fi
-
 # ----------------------------------------------------------------------------
-# Step 4: Build release AAB + APK
+# Step 4: Build release APK + AAB locally
 # ----------------------------------------------------------------------------
 echo ""
-echo "✅ [4/4] Building signed release..."
-echo "   (This takes 3–5 minutes first time)"
+echo "✅ [4/4] Building signed release (3–5 min)..."
 echo ""
 
-flutter clean > /dev/null
+flutter clean > /dev/null 2>&1 || true
 flutter pub get > /dev/null
 
-echo "   Building APK..."
-flutter build apk --release || echo "   ⚠️  APK build had issues"
+echo "   📦 Building APK..."
+if flutter build apk --release; then
+  echo "   ✓ APK built"
+else
+  echo "   ⚠️  APK build failed — check error above"
+fi
 
 echo ""
-echo "   Building AAB for Play Store..."
-flutter build appbundle --release || echo "   ⚠️  AAB build had issues"
+echo "   📦 Building AAB for Play Store..."
+if flutter build appbundle --release; then
+  echo "   ✓ AAB built"
+else
+  echo "   ⚠️  AAB build failed — check error above"
+fi
 
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "🎉 Done! Your release artifacts:"
+echo "🎉 Done!"
 echo ""
-echo "   APK (for sideloading):"
-echo "     build/app/outputs/flutter-apk/app-release.apk"
+echo "Your release artifacts:"
 echo ""
-echo "   AAB (for Play Store upload):"
-echo "     build/app/outputs/bundle/release/app-release.aab"
+
+APK_PATH="build/app/outputs/flutter-apk/app-release.apk"
+AAB_PATH="build/app/outputs/bundle/release/app-release.aab"
+
+if [ -f "$APK_PATH" ]; then
+  APK_SIZE=$(du -h "$APK_PATH" | cut -f1)
+  echo "   ✅ APK (sideload / share):"
+  echo "        $APK_PATH  ($APK_SIZE)"
+fi
+
+if [ -f "$AAB_PATH" ]; then
+  AAB_SIZE=$(du -h "$AAB_PATH" | cut -f1)
+  echo "   ✅ AAB (upload to Play Store):"
+  echo "        $AAB_PATH  ($AAB_SIZE)"
+fi
+
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
-echo "NEXT STEPS:"
+echo "NEXT STEPS FOR PLAY STORE:"
 echo "  1. Go to https://play.google.com/console"
-echo "  2. Sign up as a developer (\$25 one-time fee)"
-echo "  3. Create app → Name: Melody Flow"
-echo "  4. Set up internal testing → upload the .aab file"
-echo "  5. Add testers by email, share the test link"
+echo "  2. Pay the one-time \$25 developer fee"
+echo "  3. Create app → name: Melody Flow → category: Music & Audio"
+echo "  4. Set up internal testing track → upload the .aab file"
+echo "  5. Add your email as a tester → install test version on phone"
 echo ""
-echo "The AAB is signed with your upload key. Google will re-sign with"
-echo "their own key when distributing to users (standard Play Store flow)."
+echo "⚠️  BACKUP THESE TWO THINGS — losing either means you can NEVER"
+echo "   update your app on Play Store again:"
 echo ""
-echo "⚠️  REMEMBER:"
-echo "   BACKUP your keystore: $KEYSTORE_PATH"
-echo "   BACKUP your password"
-echo "   LOSE either = can't update your app ever again"
+echo "   1. Keystore file: $KEYSTORE_PATH"
+echo "      Copy it to: Google Drive / iCloud / USB drive"
+echo ""
+echo "   2. Keystore password — in your password manager"
+echo ""
