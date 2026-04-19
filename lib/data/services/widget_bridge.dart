@@ -27,7 +27,7 @@ class WidgetBridge {
   WidgetBridge._();
   static final WidgetBridge instance = WidgetBridge._();
 
-  static const _channel = MethodChannel('com.melodyflow.app/widget');
+  static const _channel = MethodChannel('com.daksheshbabu.melodyflow/widget');
   static const _widgetName = 'MelodyWidgetProvider';
 
   MelodyAudioHandler? _handler;
@@ -68,17 +68,17 @@ class WidgetBridge {
     if (action == null) return;
 
     switch (action) {
-      case 'com.melodyflow.app.PLAY_PAUSE':
+      case 'com.daksheshbabu.melodyflow.PLAY_PAUSE':
         if (_isPlaying) {
           await _handler!.pause();
         } else {
           await _handler!.play();
         }
         break;
-      case 'com.melodyflow.app.SKIP_NEXT':
+      case 'com.daksheshbabu.melodyflow.SKIP_NEXT':
         await _handler!.skipToNext();
         break;
-      case 'com.melodyflow.app.SKIP_PREV':
+      case 'com.daksheshbabu.melodyflow.SKIP_PREV':
         await _handler!.skipToPrevious();
         break;
     }

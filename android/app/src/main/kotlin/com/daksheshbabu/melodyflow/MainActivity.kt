@@ -1,4 +1,4 @@
-package com.melodyflow.app
+package com.daksheshbabu.melodyflow
 
 import android.content.Intent
 import android.os.Bundle
@@ -16,7 +16,7 @@ import io.flutter.plugin.common.MethodChannel
  */
 class MainActivity : AudioServiceActivity() {
 
-    private val CHANNEL = "com.melodyflow.app/widget"
+    private val CHANNEL = "com.daksheshbabu.melodyflow/widget"
     private var methodChannel: MethodChannel? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {

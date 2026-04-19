@@ -1,4 +1,4 @@
-package com.melodyflow.app
+package com.daksheshbabu.melodyflow
 
 import android.app.PendingIntent
 import android.appwidget.AppWidgetManager
@@ -21,10 +21,10 @@ class MelodyWidgetProvider : AppWidgetProvider() {
     companion object {
         private const val TAG = "MelodyWidget"
 
-        const val ACTION_PLAY_PAUSE = "com.melodyflow.app.PLAY_PAUSE"
-        const val ACTION_SKIP_NEXT  = "com.melodyflow.app.SKIP_NEXT"
-        const val ACTION_SKIP_PREV  = "com.melodyflow.app.SKIP_PREV"
-        const val ACTION_REFRESH    = "com.melodyflow.app.WIDGET_REFRESH"
+        const val ACTION_PLAY_PAUSE = "com.daksheshbabu.melodyflow.PLAY_PAUSE"
+        const val ACTION_SKIP_NEXT  = "com.daksheshbabu.melodyflow.SKIP_NEXT"
+        const val ACTION_SKIP_PREV  = "com.daksheshbabu.melodyflow.SKIP_PREV"
+        const val ACTION_REFRESH    = "com.daksheshbabu.melodyflow.WIDGET_REFRESH"
 
         private const val PREFS_NAME = "HomeWidgetPreferences"
     }

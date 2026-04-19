@@ -4,14 +4,10 @@ import java.io.FileInputStream
 plugins {
     id("com.android.application")
     id("kotlin-android")
-    // Flutter plugin must be applied after Android & Kotlin
     id("dev.flutter.flutter-gradle-plugin")
 }
 
-// ---- Load keystore properties if they exist ----
-// Used by signingConfigs.release. If key.properties is missing (e.g. a fresh
-// clone without secrets), the release build gracefully falls back to the
-// debug keystore (unusable for Play Store but won't crash local dev).
+// ---- Keystore loading (signed CI builds) ----
 val keystoreProperties = Properties()
 val keystorePropertiesFile = rootProject.file("app/key.properties")
 if (keystorePropertiesFile.exists()) {
@@ -19,7 +15,7 @@ if (keystorePropertiesFile.exists()) {
 }
 
 android {
-    namespace = "com.melodyflow.app"
+    namespace = "com.daksheshbabu.melodyflow"
     compileSdk = 36
     ndkVersion = flutter.ndkVersion
 
@@ -39,7 +35,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.melodyflow.app"
+        applicationId = "com.daksheshbabu.melodyflow"
         minSdk = 23
         targetSdk = 35
         versionCode = flutter.versionCode
@@ -65,8 +61,6 @@ android {
 
     buildTypes {
         getByName("release") {
-            // Use the release signing config when key.properties is present,
-            // otherwise fall back to debug so flutter run still works locally.
             signingConfig = if (keystorePropertiesFile.exists()) {
                 signingConfigs.getByName("release")
             } else {
@@ -88,6 +82,16 @@ flutter {
 
 dependencies {
     implementation("androidx.multidex:multidex:2.0.1")
-    implementation("com.google.android.play:core:1.10.3")
-    implementation("com.google.android.play:core-ktx:1.8.1")
+
+    // ---- Play Core split libraries (required for targetSdk 34+) ----
+    // The monolithic com.google.android.play:core is deprecated and
+    // incompatible with Android 14+ broadcast receiver changes.
+    implementation("com.google.android.play:app-update:2.1.0")
+    implementation("com.google.android.play:app-update-ktx:2.1.0")
+    implementation("com.google.android.play:asset-delivery:2.2.2")
+    implementation("com.google.android.play:asset-delivery-ktx:2.2.2")
+    implementation("com.google.android.play:feature-delivery:2.1.0")
+    implementation("com.google.android.play:feature-delivery-ktx:2.1.0")
+    implementation("com.google.android.play:review:2.0.2")
+    implementation("com.google.android.play:review-ktx:2.0.2")
 }
